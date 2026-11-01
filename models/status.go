@@ -22,3 +22,42 @@ func StatusStopped(s Status) bool {
 	}
 	return false
 }
+
+// statusWeight —— 最差者胜的权重（对照 Zadig consts.go:106-125 的偏序，学习版 7 态映射）
+// 值越大越"差"：聚合取权重最大者，一个 failed 就足以把 stage/task 拖成 failed。
+// running 排在 passed 之前：还有 job 在跑就不许宣布成功；
+// skipped 垫底：被刹车跳过的 job 不改变聚合结果（failed+skipped 仍是 failed）。
+func statusWeight(s Status) int {
+	switch s {
+	case StatusCancelled:
+		return 7
+	case StatusFailed:
+		return 6
+	case StatusPause:
+		return 5
+	case StatusRunning:
+		return 4
+	case StatusPassed:
+		return 3
+	case StatusCreated:
+		return 2
+	case StatusSkipped:
+		return 1
+	}
+	return 0 // 未知状态最无害，交给上层日志兜底
+}
+
+// WorstOf —— 最差者胜聚合（stage 聚合 jobs / task 聚合 stages 通用）。
+// 空集返回 passed：没有任何 job 的 stage 视为无事发生地成功（学习版语义）。
+func WorstOf(statuses ...Status) Status {
+	if len(statuses) == 0 {
+		return StatusPassed
+	}
+	worst := statuses[0]
+	for _, s := range statuses[1:] {
+		if statusWeight(s) > statusWeight(worst) {
+			worst = s
+		}
+	}
+	return worst
+}

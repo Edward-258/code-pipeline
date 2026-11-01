@@ -14,7 +14,7 @@ connections:
 
 image:
   repo: localhost:5000/mini-pipeline  # "localhost:5000" 由各节点 registries.yaml mirror 到节点内网 30500
-  tag: "0.1.1"
+  tag: "0.2.0"
   pullPolicy: Always                  # 开发期同 tag 反复推镜像，必须每次重拉；镜像小且走本节点，代价可忽略
 
 service:

@@ -3,4 +3,4 @@ name: mini-pipeline
 description: 以 Zadig 为蓝本的微型发布工作流引擎（学习复现）
 type: application
 version: 0.2.0
-appVersion: "0.1.1"
+appVersion: "0.2.0"

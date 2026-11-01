@@ -30,8 +30,8 @@
 里程碑总览（详细验收标准见桌面 `mini-zadig-计划.md`）：
 
 - [x] M0 地基
-- [x] **M1 第一口气**：run → K8s Job → 轮询 → ack → 清理（本地与集群双验收过）
-- [ ] M2 状态机：多 stage 串行 + stage 内并行 + 最差者胜聚合 + 失败刹车
+- [x] M1 第一口气：run → K8s Job → 轮询 → ack → 清理（本地与集群双验收过）
+- [x] **M2 状态机**（2026-11-01 完成，镜像 0.2.0）：runStages（stage 内 Parallel 并行/串行）+ WorstOf 最差者胜聚合 + 失败刹车（串行=剩余 job 置 skipped；并行=全员跑完再聚合；后续 stage 全 skipped）。验收 22 断言全过（`C:\Temp\opencode\test-m2.ps1`，走 ingress）
 - [ ] M3 灵魂时刻：manual_exec 暂停（落库+退出）→ kill 进程重启验证恢复 → release 端点放行续跑
   - 集群形态下 kill 进程 = `kubectl -n pipeline delete pod -l app=mini-pipeline`，比 Ctrl+C 更真实
 - [ ] M4 变量传递（global_context，JSON→字符串替换→反序列化）+ 单 job 重试
@@ -122,12 +122,12 @@ go test ./repo/ -v -run TestNextID   # 需先 port-forward mongo
 | 保留策略 | `.../system/service/capacity.go` |
 | helm chart 形态 | 独立 chart 仓库 `koderover-chart/zadig`（tags.* + connections.* 参数化，主仓库只出 docker/*.Dockerfile） |
 
-## 8. 下一步（M2）具体要做什么
+## 8. 下一步（M3）具体要做什么
 
-1. `engine/run.go` 的裸双层循环升级为真正的 `RunStages`：stage 顺序不变，stage 内按 `Parallel` 标志并行/串行执行 job（对照 Zadig stage.go 的 `runStage`）。
-2. 聚合规则落地：stage/job 状态用"最差者胜"聚合出任务终态（`models/status.go` 加权重函数）。
-3. 失败刹车：stage 内任一 job 失败 → 同 stage 其余 job 跑完不再起新的 → 后续 stage 全部 skipped。
-4. 验收：三 stage 流水线（含一个失败 stage）跑一遍，终态与各 stage/jobs 状态符合预期。
+1. `engine/run.go` 的 `runStages` 里加闸门（对照 Zadig stage.go 的 `waitForManualExec`）：stage 开跑前若 `ManualExec.Enabled && !Executed` → `stage.Status = pause` 落库 → **goroutine 直接 return**（不 sleep 不占线程）。
+2. release 端点（api/run.go + router）：POST `/api/tasks/:name/:id/release` → 从 Mongo 读最新 task → 置对应 stage 的 `ManualExec.Executed = true` → 重新 `go engine.Run(t)` 续跑。注意 Run() 入口现在无条件置 running/StartTime，恢复路径要兼容（StartTime 别覆盖，或首次标记）。
+3. 续跑正确性：`runStages` 已会跳过 passed/skipped stage（M2 埋好的），M3 直接受益；恢复时 task.Status pause → running 的翻转在 Run 或 release 里做，别做两处。
+4. 验收：两 stage 流水线，stage2 带 `manual_exec` → 跑到 pause → **kill 引擎 Pod**（`kubectl -n pipeline delete pod -l app=mini-pipeline`）→ 查 Mongo task 仍 pause（durable 证明）→ release → 续跑到 passed。
 
 ## 9. 案例存档 / 已知坑
 
