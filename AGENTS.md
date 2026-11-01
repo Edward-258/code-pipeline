@@ -23,9 +23,9 @@
 2. Stage 状态机 + **durable 暂停**（暂停=落库+goroutine 退出，进程重启可恢复）
 3. Job = K8s Job
 
-## 2. 当前进度（截至 2026-11-01）
+## 2. 当前进度（截至 2026-11-02）
 
-**M0 + M1 已完成**。M1 = run 端点 → counter 发号 → 快照落库 → K8s Job 创建/轮询/清理 → ack 全量写；引擎已镜像化部署进 k3s，经 ingress 对外。两个生产级 bug 的教训已固化进代码注释：task `_id` 必须插入前定为自然键 `<wf>-<taskID>`（否则 ack 全部静默失效）；删 Job 必须显式 `PropagationPolicy: Background`（否则留孤儿 Pod）。
+**M0 + M1 + M2 已完成**。M1 = run 端点 → counter 发号 → 快照落库 → K8s Job 创建/轮询/清理 → ack 全量写；引擎已镜像化部署进 k3s，经 ingress 对外。M2 = runStages 状态机（stage 内并行/串行 + 最差者胜聚合 + 失败刹车），细节见下方里程碑列表。两个生产级 bug 的教训已固化进代码注释：task `_id` 必须插入前定为自然键 `<wf>-<taskID>`（否则 ack 全部静默失效）；删 Job 必须显式 `PropagationPolicy: Background`（否则留孤儿 Pod）。
 
 里程碑总览（详细验收标准见桌面 `mini-zadig-计划.md`）：
 
@@ -74,14 +74,14 @@
 ```powershell
 # ===== 部署循环（改代码后的标准姿势） =====
 # 1) 构建镜像进 registry（在 worker-1 上 build+push）
-powershell -ExecutionPolicy Bypass -File deploy\build-push.ps1 -Tag 0.1.2
+powershell -ExecutionPolicy Bypass -File deploy\build-push.ps1 -Tag 0.2.1
 # 2) 升级 release（注意 helm v4 会复用上次 --set，覆盖要显式）
-helm upgrade mini-pipeline deploy/chart/mini-pipeline --kube-context k3s-heyuan -n pipeline --set image.tag=0.1.2 --set tags.engine=true --wait
+helm upgrade mini-pipeline deploy/chart/mini-pipeline --kube-context k3s-heyuan -n pipeline --set image.tag=0.2.1 --set tags.engine=true --wait
 
 # ===== 本机调试（引擎跑本机，连集群 mongo/创建集群 Job） =====
 kubectl --context k3s-heyuan port-forward -n pipeline svc/mongo 27017:27017   # 窗口A
 $env:MONGO_URI="mongodb://root:mini-pipeline-2026@localhost:27017"; $env:K8S_CONTEXT="k3s-heyuan"; go run .   # 窗口B
-# ⚠️ curl 发 JSON 必须用 -d @文件（PowerShell 5.1 传参会吞引号），参考 C:\Temp\opencode\test-m1.ps1 的 Api 函数
+# ⚠️ curl 发 JSON 必须用 -d @文件（PowerShell 5.1 传参会吞引号），参考 C:\Temp\opencode\test-m2.ps1 的 Api 函数（hashtable+ConvertTo-Json 构造 body，比手拼字符串可靠）
 
 # ===== 集群 =====
 kubectl --context k3s-heyuan get pods -n pipeline
@@ -101,7 +101,7 @@ go test ./repo/ -v -run TestNextID   # 需先 port-forward mongo
 
 1. **暂停的实现**：`stage.Status = pause` 写 Mongo → goroutine 直接 return（不 sleep 不占线程）→ 人调 release API 标记 `ManualExec.Executed = true` → 任务重跑 → `RunStages` 跳过已 passed 的 stage → 闸门放行。暂停多久都不丢。
 2. **资源与数据分离**：K8s 资源是消耗品（结束/暂停时清理），Mongo 记录是档案（跑完不删，只受管理员保留策略约束）。
-3. **状态聚合最差者胜**：cancelled(7) > timeout(6) > failed(5) > pause(4) > reject(3) > passed(2) > unstable(1) > skipped(0)（学习版砍到 7 态）。
+3. **状态聚合最差者胜**：Zadig 原版 cancelled(7)>timeout(6)>failed(5)>pause(4)>reject(3)>passed(2)>unstable(1)>skipped(0)。**学习版已落地**（`models/status.go` 的 statusWeight/WorstOf）：cancelled(7)>failed(6)>pause(5)>running(4)>passed(3)>created(2)>skipped(1)——running 排在 passed 前（没跑完不许宣布成功），skipped 垫底（被刹车跳过的 job 不改变聚合结果）。
 4. **ack() 全量写**：任务每前进一步把整棵树 ReplaceOne 写回，不做增量 patch。前提：`_id` 是插入前定好的自然键字符串（`<wf>-<taskID>`）——空 `_id` 插入会让 Mongo 生成 ObjectId 而结构体拿不回，ack 从此静默失效（M1 踩过）。
 5. **变量渲染**：JSON marshal → 字符串 `{{.key}}` 替换 → unmarshal（M4 照抄 Zadig 的"粗暴"方案）。
 
@@ -141,3 +141,4 @@ go test ./repo/ -v -run TestNextID   # 需先 port-forward mongo
 4. helm v4：upgrade 默认复用上次 --set 值（v3 行为相反），覆盖必须显式。
 5. 删 K8s Job 默认保留子 Pod，必须 `PropagationPolicy: Background`（engine/run.go 的 deleteOpts() 已封装）。
 6. `flannel-backend` 是 k3s **server 专属**参数，agent 配了会起不来（flag not defined）；worker 的 backend 由 master 下发。
+7. PowerShell 5.1 再添两坑（2026-11-01，都在 M2 期间踩的）：**手拼 JSON 字符串必数错括号**——用 hashtable + `ConvertTo-Json` 构造（见 test-m2.ps1 的 Job/Ensure-Workflow 函数）；**`Set-Content -Encoding ASCII` 会把文件里的中文全毁成 `?`**（批量替换 values.yaml 时差点全毁，`git diff` 出现 32 行异常变更才发现）——改文件走编辑工具，批量文本操作后必 `git diff` 自检。
