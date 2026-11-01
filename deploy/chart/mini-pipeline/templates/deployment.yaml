@@ -1,0 +1,41 @@
+{{- if .Values.tags.engine }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mini-pipeline
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: mini-pipeline
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mini-pipeline
+  template:
+    metadata:
+      labels:
+        app: mini-pipeline
+    spec:
+      serviceAccountName: {{ .Values.serviceAccount.name }}
+      containers:
+        - name: engine
+          image: "{{ .Values.image.repo }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - name: MONGO_URI
+              value: {{ include "mini-pipeline.mongoURI" . | quote }}
+            - name: K8S_NAMESPACE
+              value: {{ .Release.Namespace | quote }}
+            - name: K8S_CONTEXT
+              value: ""   # 集群内跑走 InClusterConfig；仅本机调试时才需要
+          ports:
+            - containerPort: {{ .Values.service.port }}
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: {{ .Values.service.port }}
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          resources:
+            {{- toYaml .Values.resources.engine | nindent 12 }}
+{{- end }}

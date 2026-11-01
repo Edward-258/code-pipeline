@@ -1,0 +1,25 @@
+{{- if and .Values.tags.engine .Values.ingress.enabled }}
+# 复用集群现成的 ingress-nginx + nip.io 链路（同 argocd-server-ingress 的用法）
+# 学习版不上 TLS：显式关掉 ssl-redirect，走纯 HTTP
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: mini-pipeline
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    nginx.ingress.kubernetes.io/backend-protocol: "HTTP"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: {{ .Values.ingress.host | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: mini-pipeline
+                port:
+                  number: {{ .Values.service.port }}
+{{- end }}

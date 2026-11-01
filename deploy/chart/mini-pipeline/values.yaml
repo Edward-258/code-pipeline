@@ -1,0 +1,46 @@
+# 对齐 Zadig chart 的组织方式：
+#   tags.*                —— 内置组件开关（对照 Zadig tags.mongodb）
+#   connections.*         —— 连接串参数化（对照 Zadig connections.mongodb.connectionString）
+#   mongo.persistence.existingClaim —— 继承既有 PVC（对照 Zadig mongodb.persistence.existingClaim）
+
+tags:
+  engine: true    # 引擎本体。镜像需先推入内置 registry（见 deploy/README 或 AGENTS.md）
+  mongo: true     # 内置 MongoDB；false 时必须给 connections.mongo.uri
+  registry: true  # 内置 registry:2 —— M5 之前的镜像分发通道（k3s registries.yaml mirror 到它）
+
+connections:
+  mongo:
+    uri: ""       # 留空 = 自动拼内置 mongo 的集群内 DNS 连接串（见 _helpers.tpl）
+
+image:
+  repo: localhost:5000/mini-pipeline  # "localhost:5000" 由各节点 registries.yaml mirror 到本节点 30500
+  tag: "0.1.0"
+  pullPolicy: Always                  # 开发期同 tag 反复推镜像，必须每次重拉；镜像小且走本节点，代价可忽略
+
+service:
+  port: 8080
+
+ingress:
+  enabled: true
+  host: pipeline.47.113.177.198.nip.io  # 复用集群现成的 nip.io 入口链路（同 argocd 的用法）
+
+serviceAccount:
+  name: pipeline-engine  # 引擎创建/轮询/清理 K8s Job 所用的身份
+
+mongo:
+  rootPassword: mini-pipeline-2026
+  persistence:
+    existingClaim: mongo-data  # ⭐ 继承 M0 时期 kubectl apply 留下的 PVC，数据无感迁移；置空则按 size 新建
+    size: 5Gi
+
+registry:
+  image: registry:2
+  nodePort: 30500   # 仅内网使用：安全组不对公网放行；节点间走同组内网互通规则
+  persistence:
+    size: 5Gi
+
+resources:
+  engine: {}
+  mongo:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { cpu: "1", memory: 1Gi }

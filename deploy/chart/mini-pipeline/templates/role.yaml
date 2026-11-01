@@ -1,0 +1,16 @@
+{{- if .Values.tags.engine }}
+# 引擎对 K8s 的最小权限：只在本 namespace 里管 Job + 读 Pod/日志
+# （Zadig 的 aslan 也是以 SA 身份操作业务集群，这里是学习版的最小化）
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ .Values.serviceAccount.name }}
+  namespace: {{ .Release.Namespace }}
+rules:
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["create", "get", "list", "watch", "delete"]
+  - apiGroups: [""]
+    resources: ["pods", "pods/log"]
+    verbs: ["get", "list"]
+{{- end }}

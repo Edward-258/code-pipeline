@@ -15,11 +15,12 @@ deploy/   k3s 基础设施清单（mongo 等）
 ## 快速开始
 
 ```bash
-# 1. 起 MongoDB（k3s）
-kubectl apply -f deploy/mongo.yaml
+# 1. 一条命令起全家桶（mongo/registry/引擎）——引擎镜像需先推入 registry，见 AGENTS.md
+helm install mini-pipeline deploy/chart/mini-pipeline -n pipeline --create-namespace
+#    只起基础设施不起引擎时：--set tags.engine=false
 
-# 2. 起服务
-go run .
+# 2. 集群内 MongoDB 已是 ClusterIP，本机调试走隧道
+kubectl --context k3s-heyuan port-forward -n pipeline svc/mongo 27017:27017
 
 # 3. 建一条工作流
 curl -X POST localhost:8080/api/workflows -H "Content-Type: application/json" -d @- <<'EOF'
