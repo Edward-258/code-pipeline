@@ -46,7 +46,7 @@
 |---|---|
 | k3s master | 8.155.137.224（内网 172.29.237.251，control-plane+etcd，**2026-11-16 到期**） |
 | k3s worker-1 | 8.155.128.91（内网 172.29.237.250） |
-| k3s worker-2 | 8.155.128.81（内网 172.29.237.249）⚠️ **已 cordon：pod 跨节点网络不通**（见 §9 遗留问题） |
+| k3s worker-2 | 8.155.128.81（内网 172.29.237.249）✅ 网络已修复（2026-11-01，见 §9 案例存档） |
 | kubectl context | `k3s-heyuan` |
 | MongoDB | ns `pipeline`，**ClusterIP**（chart 内置），本机调试走 `kubectl --context k3s-heyuan port-forward -n pipeline svc/mongo 27017:27017` |
 | registry:2 | chart 内置，NodePort **30500 仅内网**；节点 docker push `127.0.0.1:30500/…`；kubelet 拉镜像走 registries.yaml mirror |
@@ -129,9 +129,15 @@ go test ./repo/ -v -run TestNextID   # 需先 port-forward mongo
 3. 失败刹车：stage 内任一 job 失败 → 同 stage 其余 job 跑完不再起新的 → 后续 stage 全部 skipped。
 4. 验收：三 stage 流水线（含一个失败 stage）跑一遍，终态与各 stage/jobs 状态符合预期。
 
-## 9. 遗留问题 / 已知坑
+## 9. 案例存档 / 已知坑
 
-1. **worker-2 pod 跨节点网络不通**（2026-11-01 发现，先 cordon 绕过）：症状=该节点 Pod 连 CoreDNS/mongo svc/跨节点 Pod IP 全部超时，但节点物理网正常、host 发起的 NodePort DNAT 正常。该节点 iptables/nft 的 KUBE- 规则数量正常、kube-router 链正常、rp_filter=0、conntrack 正常——根因未明（net-check pod 3 天前就重启过，疑似存量问题）。修法方向：对比 flannel.1 vxlan 转发、br_netfilter、或直接 reboot worker-2 再 uncordon。修复前**一切调度避开 worker-2**。
-2. Windows PowerShell 5.1 三坑已入档：中文路径的 .ps1 必须无中文或参数传入（编码）；curl JSON 必须 `-d @file`（吞引号）；远程 bash 里的 `sed '$d'` 要写成 `\$d`（$ 会被远端展开）。
-3. helm v4：upgrade 默认复用上次 --set 值（v3 行为相反），覆盖必须显式。
-4. 删 K8s Job 默认保留子 Pod，必须 `PropagationPolicy: Background`（engine/run.go 的 deleteOpts() 已封装）。
+1. **【已解决】worker-2 跨节点 Pod 网络不通**（2026-11-01，教科书级案例）：
+   - **真凶在 worker-1**：keepalived 的 HaVip `172.29.237.252` 挂在 w1 eth0 上（EIP 47.113.177.198 绑此 VIP 做 ingress 高可用，w1=MASTER/w2=BACKUP）。k3s flannel 启动时扫 eth0 选中这个 VIP 作 vxlan 源地址 → VPC 反欺骗校验丢弃一切源=VIP 的包（VIP 只许入不许主动发出）→ 所有涉及 w1 的跨节点 vxlan 全灭。master↔w2 一直是健康的。
+   - **解法（改 keepalived，不动 flannel）**：VIP 从 eth0 挪到 `dummy0` 接口——`virtual_ipaddress { 172.29.237.252/32 dev dummy0 }`，VRRP 报文仍走 eth0；dummy0 由 keepalived 的 systemd drop-in（`/etc/systemd/system/keepalived.service.d/dummy0.conf`，ExecStartPre 建 dummy0）持久化。eth0 只剩主 IP → flannel 自然选对。两台 worker 都改了（保证 failover 后行为一致）。ingress 经 EIP→HaVip→dummy0 验证 200 无恙。
+   - **教训**：flannel 的 public-ip 注解是它的输出不是输入（手工改了会被重启覆写，实验两次证实）；host-gw 后端在阿里云 VPC 是死路（VPC 网络层按 ENI 注册表丢裸 Pod 源地址包，加安全组放行+关 SourceDestCheck 都救不了，实测）；wireguard-native 也不必了（dummy0 方案最干净，保持默认 vxlan）。
+   - **运维注意**：`kubectl get nodes` 若再见 w1 的 `flannel.alpha.coreos.com/public-ip` 变成 .252 → 说明 keepalived 的 VIP 跑回 eth0 了（比如有人还原了配置）。
+2. **keepalived 底稿未进仓**：`/etc/keepalived/keepalived.conf` 注释里写"仓库底稿:system/keepalived/"，但 k3s-gitops 仓库（github.com/Edward-258/k3s-gitops，私有）里没有该目录——节点层配置是单点，dummy0 改动目前只活在那两台机器上。建议补进 gitops 仓库。
+3. Windows PowerShell 5.1 四坑已入档：中文路径的 .ps1 必须无中文或参数传入（编码）；curl JSON 必须 `-d @file`（吞引号）；远程 bash 里的 `sed '$d'` 要写成 `\$d`；**SSH 远程命令内层引号必被剥——传配置文件/脚本一律 base64**（`echo <b64> | base64 -d > file` 或 `| bash`，本项目已踩三次）。
+4. helm v4：upgrade 默认复用上次 --set 值（v3 行为相反），覆盖必须显式。
+5. 删 K8s Job 默认保留子 Pod，必须 `PropagationPolicy: Background`（engine/run.go 的 deleteOpts() 已封装）。
+6. `flannel-backend` 是 k3s **server 专属**参数，agent 配了会起不来（flag not defined）；worker 的 backend 由 master 下发。
