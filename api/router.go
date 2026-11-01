@@ -20,9 +20,10 @@ func NewRouter() *gin.Engine {
 		api.GET("/workflows/:name", GetWorkflow)
 		api.DELETE("/workflows/:name", DeleteWorkflow)
 
-		// M1 预留：run / task 查询
-		// api.POST("/workflows/:name/run", RunWorkflow)
-		// api.GET("/tasks/:name/:id", GetTask)
+		// M1：run / task 查询
+		api.POST("/workflows/:name/run", RunWorkflow)
+		api.GET("/tasks/:name", ListTasks)
+		api.GET("/tasks/:name/:id", GetTask)
 		// M3 预留：放行暂停的 stage（灵魂端点）
 		// api.POST("/tasks/:name/:id/stages/:stage/release", ReleaseStage)
 	}

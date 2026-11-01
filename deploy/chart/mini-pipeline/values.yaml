@@ -13,8 +13,8 @@ connections:
     uri: ""       # 留空 = 自动拼内置 mongo 的集群内 DNS 连接串（见 _helpers.tpl）
 
 image:
-  repo: localhost:5000/mini-pipeline  # "localhost:5000" 由各节点 registries.yaml mirror 到本节点 30500
-  tag: "0.1.0"
+  repo: localhost:5000/mini-pipeline  # "localhost:5000" 由各节点 registries.yaml mirror 到节点内网 30500
+  tag: "0.1.1"
   pullPolicy: Always                  # 开发期同 tag 反复推镜像，必须每次重拉；镜像小且走本节点，代价可忽略
 
 service:
