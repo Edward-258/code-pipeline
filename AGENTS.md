@@ -2,6 +2,8 @@
 
 > **工作台（2026-11-02 起迁移）**：WSL2 Ubuntu-24.04，本仓库位于 `/home/edward/projects/mini-pipeline`（git 历史完整迁入，`core.autocrlf=input`）。工具链：go 1.26.4（/usr/local/go，GOPROXY=goproxy.cn）、helm v4.0.0、kubectl（context `k3s-heyuan` 已配通）、jq、gcc、git（身份 Edward-258）。路径映射：Zadig 模板 → `/mnt/e/code pipeline学习模板(基于zadig项目)/zadig`；SSH key → `~/.ssh/heyuan81.pem`（/mnt/e 原件 drvfs 权限 ssh 不认，已拷贝 + chmod 600）；Windows 临时目录 → `/mnt/c/Temp/opencode`。`deploy/build-push.sh` 是 WSL 版构建脚本（tar/scp/ssh 原生三件套，源码取自本仓库；Windows 时代的 build-push.ps1 已删）。Windows 旧副本 `E:\code pipeline的小范围复现` 仅作存档，勿双向编辑。
 
+> **远端（2026-11-03 关联）**：`origin` = https://github.com/Edward-258/code-pipeline.git（**私有**，首推 master；仓库含明文密码，永不可转公开）。WSL 无 GitHub 凭证，推送走 Windows GCM 桥——credential.helper 已写进本仓库 local config（指向 `/mnt/c/Program Files/Git/mingw64/bin/git-credential-manager.exe`），裸 `git push` 即可，弹窗点一下就行。
+
 > 任何 AI 会话开始于此目录时，先读完本文件再动手。内容按"必读 → 速查 → 参考"排序。
 
 ## 0. 铁律
@@ -25,9 +27,9 @@
 2. Stage 状态机 + **durable 暂停**（暂停=落库+goroutine 退出，进程重启可恢复）
 3. Job = K8s Job
 
-## 2. 当前进度（截至 2026-11-02）
+## 2. 当前进度（截至 2026-11-03）
 
-**M0 + M1 + M2 已完成**。M1 = run 端点 → counter 发号 → 快照落库 → K8s Job 创建/轮询/清理 → ack 全量写；引擎已镜像化部署进 k3s，经 ingress 对外。M2 = runStages 状态机（stage 内并行/串行 + 最差者胜聚合 + 失败刹车），细节见下方里程碑列表。两个生产级 bug 的教训已固化进代码注释：task `_id` 必须插入前定为自然键 `<wf>-<taskID>`（否则 ack 全部静默失效）；删 Job 必须显式 `PropagationPolicy: Background`（否则留孤儿 Pod）。
+**M0 + M1 + M2 已完成**。M1 = run 端点 → counter 发号 → 快照落库 → K8s Job 创建/轮询/清理 → ack 全量写；引擎已镜像化部署进 k3s，经 ingress 对外。M2 = runStages 状态机（stage 内并行/串行 + 最差者胜聚合 + 失败刹车），细节见下方里程碑列表。两个生产级 bug 的教训已固化进代码注释：task `_id` 必须插入前定为自然键 `<wf>-<taskID>`（否则 ack 全部静默失效）；删 Job 必须显式 `PropagationPolicy: Background`（否则留孤儿 Pod）。基础设施侧 2026-11-02/03 两连升：registry:2 移交 ArgoCD + 引擎镜像分发改走 ACR 个人版（决断 #11/#12）。
 
 里程碑总览（详细验收标准见桌面 `mini-zadig-计划.md`）：
 
@@ -70,7 +72,7 @@
 7. runner 不主动回调：**Pod 退出码 = job 结果**，日志用 API 拉。
 8. 第一版不做队列/并发控制。
 9. 挂 docker.sock 的 Pod ≈ 节点 root，仅限学习集群，fat image 永不推公网。
-10. Mongo 密码明文写在 chart values 和 config/config.go——学习版接受，此仓库别推公开远端。
+10. Mongo 密码明文写在 chart values 和 config/config.go——学习版接受，此仓库别推公开远端（2026-11-03 起已有**私有**远端 `origin` = github.com/Edward-258/code-pipeline，保持私有即合规；ACR 密码 `acr.password` 同档处理，只进私有处）。
 11. **registry:2 归 ArgoCD 管**（2026-11-02）：资源清单进 k3s-gitops 仓库（`registry` app，app-of-apps 第 4 位，sync-wave 3），chart 的 `tags.registry` 默认 false 只留作全新环境 bootstrap。新增 ingress 反代 `registry.47.113.177.198.nip.io` 供本机直连（无认证无 TLS 公网可达，仅学习期接受）。helm→argocd 移交手法见 §9.8。
 12. **引擎镜像分发走 ACR 个人版独立实例**（2026-11-03）：push = 公网端点（构建侧，节点或本地），pull = VPC 端点（`-vpc` 后缀，集群内网免公网流量）；凭证 = chart 内 imagePullSecret `acr-credential`（dockerconfigjson，**只挂引擎 Deployment**，节点 registries.yaml 不动、不重启 k3s，其它镜像拉取链路零影响）。registry:2 退居 M5 流水线产物专用，两条链路互不干扰。ACR 的坑见 §9.12。
 
@@ -82,6 +84,9 @@
 deploy/build-push.sh 0.2.2
 # 2) 升级 release（注意 helm v4 会复用上次 --set，覆盖要显式）
 helm upgrade mini-pipeline deploy/chart/mini-pipeline --kube-context k3s-heyuan -n pipeline --set image.tag=0.2.2 --set tags.engine=true --wait
+
+# ===== git 远端（私有 GitHub） =====
+git push   # GCM 凭证桥已配在仓库 local config，裸敲即可（首次会弹 Windows 登录窗）
 
 # ===== 本机调试（引擎跑本机，连集群 mongo/创建集群 Job） =====
 kubectl --context k3s-heyuan port-forward -n pipeline svc/mongo 27017:27017   # 窗口A
@@ -108,6 +113,7 @@ go test ./repo/ -v -run TestNextID   # 需先 port-forward mongo
 3. **状态聚合最差者胜**：Zadig 原版 cancelled(7)>timeout(6)>failed(5)>pause(4)>reject(3)>passed(2)>unstable(1)>skipped(0)。**学习版已落地**（`models/status.go` 的 statusWeight/WorstOf）：cancelled(7)>failed(6)>pause(5)>running(4)>passed(3)>created(2)>skipped(1)——running 排在 passed 前（没跑完不许宣布成功），skipped 垫底（被刹车跳过的 job 不改变聚合结果）。
 4. **ack() 全量写**：任务每前进一步把整棵树 ReplaceOne 写回，不做增量 patch。前提：`_id` 是插入前定好的自然键字符串（`<wf>-<taskID>`）——空 `_id` 插入会让 Mongo 生成 ObjectId 而结构体拿不回，ack 从此静默失效（M1 踩过）。
 5. **变量渲染**：JSON marshal → 字符串 `{{.key}}` 替换 → unmarshal（M4 照抄 Zadig 的"粗暴"方案）。
+6. **构建 job 的真身是 freestyle + 步骤列表**（2026-11-03 核对实证，见 §7 新增行）：`zadig-build` 在 `initJobCtl` 的 switch 里没有专门 case，落 default = FreestyleJobCtl。步骤（git → shell 编译 → docker_build → …）在 **Pod 内**由 jobexecutor 顺序执行（失败且非 OnFailure 则跳过剩余步骤），步骤状态经 ConfigMap（名字=K8sJobName）回传、aslan 每秒轮询。"分节点分界面"的数据源就是 workflow_task 里 stages→jobs→steps 三级状态树，前端无特殊机制。我们做步骤化时可用 bash 驱动脚本替代 jobexecutor 二进制（ConfigMap 放 steps JSON，逐条执行回写）。
 
 ## 7. Zadig 参考文件地图（写对应模块前先读）
 
@@ -118,6 +124,8 @@ go test ./repo/ -v -run TestNextID   # 需先 port-forward mongo
 | **Stage 引擎（灵魂）** | `pkg/microservice/aslan/core/common/service/workflowcontroller/stage.go` |
 | Run 主循环 + ack | 同目录 `workflow.go` |
 | Job 执行/清理 | 同目录 `jobcontroller/job.go`（蓝绿豁免 565 行） |
+| Step 层接口（aslan 侧 PreRun/AfterRun） | 同目录 `jobcontroller/stepcontroller/step.go` |
+| Pod 内步骤执行器（jobexecutor） | `pkg/microservice/jobexecutor/core/service/{job.go, step.go}`（顺序跑 steps，输出收集进 ConfigMap/termination message） |
 | K8s Job 生成 | 同目录 `jobcontroller/kubernetes.go`（docker.sock 挂载 832 行、DOCKER_HOST 注入 745 行） |
 | counter 发号器 | `.../models/counter.go`（22 行） |
 | ack 写模式 | `.../mongodb/workflow_task_v4.go:318` |
@@ -127,6 +135,8 @@ go test ./repo/ -v -run TestNextID   # 需先 port-forward mongo
 | helm chart 形态 | 独立 chart 仓库 `koderover-chart/zadig`（tags.* + connections.* 参数化，主仓库只出 docker/*.Dockerfile） |
 
 ## 8. 下一步（M3）具体要做什么
+
+> 2026-11-03 状态：用户当前方向是"分节点分界面的编译构建 + 统一生命周期管理"，Zadig 核对报告已交（§6.6 是结论）——步骤化方案 A（bash executor + ConfigMap 回传）vs B（不加步骤层）待拍板；M3 暂缓但不废弃（闸门设计与 Zadig stage.go 的 waitForManualExec 已逐行核对一致）。
 
 1. `engine/run.go` 的 `runStages` 里加闸门（对照 Zadig stage.go 的 `waitForManualExec`）：stage 开跑前若 `ManualExec.Enabled && !Executed` → `stage.Status = pause` 落库 → **goroutine 直接 return**（不 sleep 不占线程）。
 2. release 端点（api/run.go + router）：POST `/api/tasks/:name/:id/release` → 从 Mongo 读最新 task → 置对应 stage 的 `ManualExec.Executed = true` → 重新 `go engine.Run(t)` 续跑。注意 Run() 入口现在无条件置 running/StartTime，恢复路径要兼容（StartTime 别覆盖，或首次标记）。
