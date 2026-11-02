@@ -14,7 +14,7 @@ engine/            执行器（双模式 K8s client / K8s Job 构建 / Run 主�
 docker/            引擎镜像（多阶段，实际构建发生在集群节点上）
 deploy/
   chart/mini-pipeline/   helm chart（tags.{engine,mongo,registry} 组件开关，对照 Zadig chart 模式）
-  build-push.sh           镜像构建分发一条龙（打包→scp→节点 build→push 内置 registry）
+  build-push.sh           镜像构建分发一条龙（打包→scp→节点 build→push ACR）
 ```
 
 ## 快速开始
@@ -49,19 +49,28 @@ wf.json 示例：
 }
 ```
 
-## 镜像分发链路（M5 前无外部仓库的解法）
+## 镜像分发链路
 
-```
+引擎镜像（2026-11-03 起）：**阿里云 ACR 个人版独立实例**（cn-heyuan，crpi- 前缀域名）
+push: 节点/本地 docker push crpi-28fqgwft325ylccc.cn-heyuan.personal.cr.aliyuncs.com/codepipeline-learning/mini-pipeline:<tag>（公网端点）
+      ⚠️ build 必须 --provenance=false：ACR 拒收 BuildKit 默认的 provenance/attestation 清单（unknown manifest class for oci.empty.v1+json）
+      ⚠️ 老共享域名 registry.cn-heyuan.aliyuncs.com 不属于本实例（Forbidden Host），别用
+pull: crpi-28fqgwft325ylccc-vpc.cn-heyuan.personal.cr.aliyuncs.com/…（VPC 端点，集群内网免公网流量）
+      凭证 = chart 内 imagePullSecret acr-credential（只挂引擎 Deployment，节点 registries.yaml 不动、不重启 k3s）
+
+流水线产物镜像（M5 用）：仍走集群内 registry:2，与引擎分发互不干扰
 push: 节点上 docker push 127.0.0.1:30500/mini-pipeline:<tag>（NodePort 仅内网，安全组不放公网）
 pull: 三节点 /etc/rancher/k3s/registries.yaml 把 "localhost:5000" mirror 到各节点内网 IP:30500
       → 镜像名两边一致（registry 存储剥离 host 前缀），kubelet 无感知
 本机直连（2026-11-02 起）：http://registry.47.113.177.198.nip.io（ingress 反代，公网零新端口）
       Docker Desktop 需在 daemon.json 的 insecure-registries 里加该 host（registry 无 TLS）
-      docker push registry.47.113.177.198.nip.io/mini-pipeline:<tag> → 落库仍是 mini-pipeline:<tag>（host 剥离）
 管理：registry 资源归 ArgoCD（k3s-gitops 仓库 registry app）；chart 的 tags.registry 仅留 bootstrap
-改代码后的标准循环：
-  deploy/build-push.sh <new-tag>
-  helm upgrade mini-pipeline deploy/chart/mini-pipeline --kube-context k3s-heyuan -n pipeline --set image.tag=<new-tag> --set tags.engine=true --wait
+
+改代码后的标准循环（引擎镜像，ACR 路线）：
+
+```bash
+deploy/build-push.sh <new-tag>
+helm upgrade mini-pipeline deploy/chart/mini-pipeline --kube-context k3s-heyuan -n pipeline --set image.tag=<new-tag> --set tags.engine=true --wait
 ```
 
 ## 环境变量

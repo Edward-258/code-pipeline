@@ -17,6 +17,10 @@ spec:
         app: mini-pipeline
     spec:
       serviceAccountName: {{ .Values.serviceAccount.name }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: engine
           image: "{{ .Values.image.repo }}:{{ .Values.image.tag }}"
