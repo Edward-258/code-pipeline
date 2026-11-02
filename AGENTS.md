@@ -1,5 +1,7 @@
 # AGENTS.md — mini-pipeline 项目上下文（给下一个会话的你）
 
+> **工作台（2026-11-02 起迁移）**：WSL2 Ubuntu-24.04，本仓库位于 `/home/edward/projects/mini-pipeline`（git 历史完整迁入，`core.autocrlf=input`）。工具链：go 1.26.4（/usr/local/go，GOPROXY=goproxy.cn）、helm v4.0.0、kubectl（context `k3s-heyuan` 已配通）、jq、gcc、git（身份 Edward-258）。路径映射：Zadig 模板 → `/mnt/e/code pipeline学习模板(基于zadig项目)/zadig`；SSH key → `~/.ssh/heyuan81.pem`（/mnt/e 原件 drvfs 权限 ssh 不认，已拷贝 + chmod 600）；Windows 临时目录 → `/mnt/c/Temp/opencode`。⚠️ `deploy/build-push.ps1` 是 PowerShell 脚本且打包的是 Windows 侧源码——**从 WSL 部署前必须先移植 bash 版**（tar/scp/ssh 三件套 WSL 全有，属 M3 前置小活，别用 powershell.exe 绕，会打出旧副本的陈旧镜像）。Windows 旧副本 `E:\code pipeline的小范围复现` 仅作存档，勿双向编辑。
+
 > 任何 AI 会话开始于此目录时，先读完本文件再动手。内容按"必读 → 速查 → 参考"排序。
 
 ## 0. 铁律
