@@ -51,7 +51,7 @@
 | k3s worker-2 | 8.155.128.81（内网 172.29.237.249）✅ 网络已修复（2026-11-01，见 §9 案例存档） |
 | kubectl context | `k3s-heyuan` |
 | MongoDB | ns `pipeline`，**ClusterIP**（chart 内置），本机调试走 `kubectl --context k3s-heyuan port-forward -n pipeline svc/mongo 27017:27017` |
-| registry:2 | chart 内置，NodePort **30500 仅内网**；节点 docker push `127.0.0.1:30500/…`；kubelet 拉镜像走 registries.yaml mirror |
+| registry:2 | **归 ArgoCD 管**（k3s-gitops `registry` app，2026-11-02 移交）。NodePort 30500 仅内网（节点 push / kubelet mirror 链路不变）；对外 `http://registry.47.113.177.198.nip.io`（ingress 反代；Docker Desktop 直连需配 insecure-registries） |
 | 引擎入口 | `https://pipeline.47.113.177.198.nip.io`（复用集群现成 nip.io+ingress-nginx 链路，SG 80/443 已放行） |
 | 安全组 | `sg-f8z8wcoum4myexrjfr40`；**30017 已收掉**，现有 80/443/6443/22/3389 + 同组内网互通 |
 | 集群存量 | argocd（ns argocd）、ingress-nginx（DaemonSet hostNetwork 双 worker）——都不是我们的，别动 |
@@ -62,7 +62,7 @@
 
 1. **引擎跑在集群内**（2026-11-01 拍板，推翻更早的"本机跑"方案）：InClusterConfig + SA `pipeline-engine`（Role 仅 jobs/pods 权限）；代码保留 kubeconfig fallback 供本机调试（`K8S_CONTEXT=k3s-heyuan`）。
 2. **部署形态对齐 Zadig = helm chart**：`deploy/chart/mini-pipeline`，`tags.{engine,mongo,registry}` 组件开关 + `connections.mongo.uri` 参数化（对照 Zadig chart 的 tags.mongodb / connections 模式）。⚠️ Helm v4 升级默认**复用**上次 --set 值，覆盖要显式 `--set`。
-3. **registry:2 提前建**（原 M5 组件）：镜像名统一 `localhost:5000/mini-pipeline:<tag>`，push 侧节点 docker 推 `127.0.0.1:30500`，pull 侧三节点 registries.yaml 把 `localhost:5000` mirror 到三个节点内网 IP:30500（不能只配 127.0.0.1——worker-2 回环 NodePort 不通，见 §9）。registry 存储会剥离 host 前缀，两边镜像名天然一致。
+3. **registry:2 提前建**（原 M5 组件）：镜像名统一 `localhost:5000/mini-pipeline:<tag>`，push 侧节点 docker 推 `127.0.0.1:30500`，pull 侧三节点 registries.yaml 把 `localhost:5000` mirror 到三个节点内网 IP:30500（不能只配 127.0.0.1——worker-2 回环 NodePort 不通，见 §9）。registry 存储会剥离 host 前缀，两边镜像名天然一致。（2026-11-02 起资源归 ArgoCD 管，见决断 #11；两条链路本身不变）
 4. **镜像构建在节点上做**：`deploy/build-push.sh <tag>` 一条命令 = WSL 打包源码 → scp worker-1 → docker build（多阶段 golang:1.26-alpine，GOPROXY=goproxy.cn）→ push registry。（2026-11-02 从 ps1 移植；本机 Docker Desktop 走 SSH 隧道直推 registry 实测可行但需常驻隧道，弃用）
 5. **镜像构建走路线①**（M5 生效）：fat image（docker CLI）+ 挂宿主 `/var/run/docker.sock`；k3s 是 containerd，两个镜像仓库互不相认，registry:2 是必选项。
 6. 状态获取用**轮询**（每 2s 查 K8s Job），不上 watch。
@@ -70,6 +70,7 @@
 8. 第一版不做队列/并发控制。
 9. 挂 docker.sock 的 Pod ≈ 节点 root，仅限学习集群，fat image 永不推公网。
 10. Mongo 密码明文写在 chart values 和 config/config.go——学习版接受，此仓库别推公开远端。
+11. **registry:2 归 ArgoCD 管**（2026-11-02）：资源清单进 k3s-gitops 仓库（`registry` app，app-of-apps 第 4 位，sync-wave 3），chart 的 `tags.registry` 默认 false 只留作全新环境 bootstrap。新增 ingress 反代 `registry.47.113.177.198.nip.io` 供本机直连（无认证无 TLS 公网可达，仅学习期接受）。helm→argocd 移交手法见 §9.8。
 
 ## 5. 常用命令
 
@@ -143,3 +144,4 @@ go test ./repo/ -v -run TestNextID   # 需先 port-forward mongo
 5. 删 K8s Job 默认保留子 Pod，必须 `PropagationPolicy: Background`（engine/run.go 的 deleteOpts() 已封装）。
 6. `flannel-backend` 是 k3s **server 专属**参数，agent 配了会起不来（flag not defined）；worker 的 backend 由 master 下发。
 7. PowerShell 5.1 再添两坑（2026-11-01，都在 M2 期间踩的）：**手拼 JSON 字符串必数错括号**——用 hashtable + `ConvertTo-Json` 构造（见 test-m2.ps1 的 Job/Ensure-Workflow 函数）；**`Set-Content -Encoding ASCII` 会把文件里的中文全毁成 `?`**（批量替换 values.yaml 时差点全毁，`git diff` 出现 32 行异常变更才发现）——改文件走编辑工具，批量文本操作后必 `git diff` 自检。
+8. **helm→argocd 资源移交**（2026-11-02，registry:2 实操）：直接让 ArgoCD SSA 接管 helm 部署的资源会打架（`managed-by: Helm` 标签的字段所有权冲突）。正确三步：① 活体 PVC 先打 `helm.sh/resource-policy: keep` 注解——否则 helm upgrade 摘除时连数据卷一起删（默认回收策略下 PV 也没了，镜像全灭）；② `helm upgrade --set tags.<x>=false` 摘除资源；③ 新清单**逐字段抄活体**（storageClassName 等默认值都要抄）先 `kubectl apply` 铺上再推 git，ArgoCD 认领零漂移（出现即 Synced/Healthy），停机窗口秒级。附带发现：ArgoCD 对新 app 的发现依赖 root app 刷新（默认 ~3min 轮询），等不及可 `kubectl patch application root -n argocd -p '{"metadata":{"annotations":{"argocd.argoproj.io/refresh":"normal"}}}' --type merge` 手动触发（UI 的 Refresh 按钮同款）。

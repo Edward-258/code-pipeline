@@ -20,7 +20,7 @@ deploy/
 ## 快速开始
 
 ```bash
-# 一条命令起全家桶（mongo/registry/引擎）
+# 一条命令起全家桶（mongo/引擎；registry:2 已移交 ArgoCD 管理，见下"镜像分发链路"）
 helm install mini-pipeline deploy/chart/mini-pipeline --kube-context k3s-heyuan -n pipeline --create-namespace
 #    只起基础设施不起引擎时：--set tags.engine=false（引擎镜像需先进 registry）
 
@@ -55,6 +55,10 @@ wf.json 示例：
 push: 节点上 docker push 127.0.0.1:30500/mini-pipeline:<tag>（NodePort 仅内网，安全组不放公网）
 pull: 三节点 /etc/rancher/k3s/registries.yaml 把 "localhost:5000" mirror 到各节点内网 IP:30500
       → 镜像名两边一致（registry 存储剥离 host 前缀），kubelet 无感知
+本机直连（2026-11-02 起）：http://registry.47.113.177.198.nip.io（ingress 反代，公网零新端口）
+      Docker Desktop 需在 daemon.json 的 insecure-registries 里加该 host（registry 无 TLS）
+      docker push registry.47.113.177.198.nip.io/mini-pipeline:<tag> → 落库仍是 mini-pipeline:<tag>（host 剥离）
+管理：registry 资源归 ArgoCD（k3s-gitops 仓库 registry app）；chart 的 tags.registry 仅留 bootstrap
 改代码后的标准循环：
   deploy/build-push.sh <new-tag>
   helm upgrade mini-pipeline deploy/chart/mini-pipeline --kube-context k3s-heyuan -n pipeline --set image.tag=<new-tag> --set tags.engine=true --wait

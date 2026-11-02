@@ -6,7 +6,7 @@
 tags:
   engine: true    # 引擎本体。镜像需先推入内置 registry（见 deploy/README 或 AGENTS.md）
   mongo: true     # 内置 MongoDB；false 时必须给 connections.mongo.uri
-  registry: true  # 内置 registry:2 —— M5 之前的镜像分发通道（k3s registries.yaml mirror 到它）
+  registry: false # registry:2 已移交 ArgoCD 管理（k3s-gitops 仓库 registry app，2026-11-02）；本开关仅留作全新环境 bootstrap
 
 connections:
   mongo:
@@ -34,6 +34,7 @@ mongo:
     size: 5Gi
 
 registry:
+  # ⚠️ 生产真相源在 k3s-gitops 仓库（ArgoCD registry app，含对外 ingress）；此处仅 bootstrap 参考
   image: registry:2
   nodePort: 30500   # 仅内网使用：安全组不对公网放行；节点间走同组内网互通规则
   persistence:
