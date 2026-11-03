@@ -29,15 +29,14 @@
 
 ## 2. 当前进度（截至 2026-11-03）
 
-**M0 + M1 + M2 已完成**。M1 = run 端点 → counter 发号 → 快照落库 → K8s Job 创建/轮询/清理 → ack 全量写；引擎已镜像化部署进 k3s，经 ingress 对外。M2 = runStages 状态机（stage 内并行/串行 + 最差者胜聚合 + 失败刹车），细节见下方里程碑列表。两个生产级 bug 的教训已固化进代码注释：task `_id` 必须插入前定为自然键 `<wf>-<taskID>`（否则 ack 全部静默失效）；删 Job 必须显式 `PropagationPolicy: Background`（否则留孤儿 Pod）。基础设施侧 2026-11-02/03 两连升：registry:2 移交 ArgoCD + 引擎镜像分发改走 ACR 个人版（决断 #11/#12）。
+**M0 + M1 + M2 + M3 已完成**。M1 = run 端点 → counter 发号 → 快照落库 → K8s Job 创建/轮询/清理 → ack 全量写；引擎已镜像化部署进 k3s，经 ingress 对外。M2 = runStages 状态机（stage 内并行/串行 + 最差者胜聚合 + 失败刹车），细节见下方里程碑列表。M3 = durable 暂停（闸门落库+goroutine 退出 → kill 引擎 Pod 档案仍在 → release 续跑）。两个生产级 bug 的教训已固化进代码注释：task `_id` 必须插入前定为自然键 `<wf>-<taskID>`（否则 ack 全部静默失效）；删 Job 必须显式 `PropagationPolicy: Background`（否则留孤儿 Pod）。基础设施侧 2026-11-02/03 两连升：registry:2 移交 ArgoCD + 引擎镜像分发改走 ACR 个人版（决断 #11/#12）。
 
 里程碑总览（详细验收标准见桌面 `mini-zadig-计划.md`）：
 
 - [x] M0 地基
 - [x] M1 第一口气：run → K8s Job → 轮询 → ack → 清理（本地与集群双验收过）
 - [x] **M2 状态机**（2026-11-01 完成，镜像 0.2.0）：runStages（stage 内 Parallel 并行/串行）+ WorstOf 最差者胜聚合 + 失败刹车（串行=剩余 job 置 skipped；并行=全员跑完再聚合；后续 stage 全 skipped）。验收 22 断言全过（`C:\Temp\opencode\test-m2.ps1`，走 ingress）
-- [ ] M3 灵魂时刻：manual_exec 暂停（落库+退出）→ kill 进程重启验证恢复 → release 端点放行续跑
-  - 集群形态下 kill 进程 = `kubectl -n pipeline delete pod -l app=mini-pipeline`，比 Ctrl+C 更真实
+- [x] **M3 灵魂时刻**（2026-11-03 完成，镜像 0.3.0）：runStages 闸门（`stageGated`，对照 Zadig waitForManualExec）→ pause 落库 + goroutine 直接 return；release 端点 `POST /api/tasks/:name/:id/stages/:stage/release`（releaseMu 防双击；只翻 `Executed` 位，pause→running 翻转单点在 engine.Run）；Run() 的 StartTime 首次标记（恢复不覆盖）。验收 11 断言全过（`deploy/test-m3.sh`，含 kill 引擎 Pod 后档案仍 pause 的 durable 证明 + 双 release 409）
 - [ ] M4 变量传递（global_context，JSON→字符串替换→反序列化）+ 单 job 重试
 - [ ] M5 真构建：fat runner（docker CLI）+ 挂宿主 docker.sock + 真 Go 项目构建推镜像（registry 已就位，M5 直接用）
 - [ ] M6 半吊子前端（单 HTML + fetch 轮询，不上框架）
@@ -134,14 +133,16 @@ go test ./repo/ -v -run TestNextID   # 需先 port-forward mongo
 | 保留策略 | `.../system/service/capacity.go` |
 | helm chart 形态 | 独立 chart 仓库 `koderover-chart/zadig`（tags.* + connections.* 参数化，主仓库只出 docker/*.Dockerfile） |
 
-## 8. 下一步（M3）具体要做什么
+## 8. 下一步：核心 CI/CD（步骤化 + 真构建 + junit 门禁）
 
-> 2026-11-03 状态：用户当前方向是"分节点分界面的编译构建 + 统一生命周期管理"，Zadig 核对报告已交（§6.6 是结论）——步骤化方案 A（bash executor + ConfigMap 回传）vs B（不加步骤层）待拍板；M3 暂缓但不废弃（闸门设计与 Zadig stage.go 的 waitForManualExec 已逐行核对一致）。
+> 2026-11-03 状态：**M3 完成，三条灵魂全部及格**。用户方向 = "分节点分界面的编译构建 + 统一生命周期管理"（直接上核心 CI/CD）。完整设计在计划文件 `~/.claude/plans/mellow-spinning-acorn.md`（含 Zadig 源码核对结论：无 job 级 DAG、扩展性=JobCtl/StepCtl 类型注册表、junit 门禁在执行器侧）。要点：
+> 1. 模型：StepSpec/StepTask（步骤自带 status/起止/Log/TestResult）——分界面的三级树数据源；旧图纸 Scripts 翻译成隐式 step "main"
+> 2. executor：bash 驱动脚本（引擎代码生成，banner 标记 + 失败即停）+ 引擎轮询 Pod 日志解析步骤状态（不用 ConfigMap——alpine 无 curl 免 SA 改造，M4 outputs 再升级）
+> 3. 注册表：JobCtl{Run,Clean,SaveInfo} + StepCtl{PreRun,AfterRun}，step 首发四种 shell/git/docker_build/junit_report（junit 门禁在引擎侧 AfterRun，Zadig 在执行器侧，语义等价）
+> 4. 真构建：mini-runner 瘦镜像（alpine+git+docker-cli，进 registry:2 走 localhost:5000 mirror 免认证）+ hostPath docker.sock（决断 #5）+ downward API 注入 `<nodeIP>:30500` push 端点
+> 5. 其后才是 M4（变量渲染/outputs/重试，挂靠点已留）与 M6 前端
 
-1. `engine/run.go` 的 `runStages` 里加闸门（对照 Zadig stage.go 的 `waitForManualExec`）：stage 开跑前若 `ManualExec.Enabled && !Executed` → `stage.Status = pause` 落库 → **goroutine 直接 return**（不 sleep 不占线程）。
-2. release 端点（api/run.go + router）：POST `/api/tasks/:name/:id/release` → 从 Mongo 读最新 task → 置对应 stage 的 `ManualExec.Executed = true` → 重新 `go engine.Run(t)` 续跑。注意 Run() 入口现在无条件置 running/StartTime，恢复路径要兼容（StartTime 别覆盖，或首次标记）。
-3. 续跑正确性：`runStages` 已会跳过 passed/skipped stage（M2 埋好的），M3 直接受益；恢复时 task.Status pause → running 的翻转在 Run 或 release 里做，别做两处。
-4. 验收：两 stage 流水线，stage2 带 `manual_exec` → 跑到 pause → **kill 引擎 Pod**（`kubectl -n pipeline delete pod -l app=mini-pipeline`）→ 查 Mongo task 仍 pause（durable 证明）→ release → 续跑到 passed。
+M3 完成细节（留档）：闸门 `engine/run.go:stageGated`、端点 `api/run.go:ReleaseStage`（releaseMu 防双击，只翻 Executed 位；pause→running 翻转单点在 engine.Run，StartTime 首次标记）。
 
 ## 9. 案例存档 / 已知坑
 
@@ -151,7 +152,7 @@ go test ./repo/ -v -run TestNextID   # 需先 port-forward mongo
    - **教训**：flannel 的 public-ip 注解是它的输出不是输入（手工改了会被重启覆写，实验两次证实）；host-gw 后端在阿里云 VPC 是死路（VPC 网络层按 ENI 注册表丢裸 Pod 源地址包，加安全组放行+关 SourceDestCheck 都救不了，实测）；wireguard-native 也不必了（dummy0 方案最干净，保持默认 vxlan）。
    - **运维注意**：`kubectl get nodes` 若再见 w1 的 `flannel.alpha.coreos.com/public-ip` 变成 .252 → 说明 keepalived 的 VIP 跑回 eth0 了（比如有人还原了配置）。
 2. **keepalived 底稿未进仓**：`/etc/keepalived/keepalived.conf` 注释里写"仓库底稿:system/keepalived/"，但 k3s-gitops 仓库（github.com/Edward-258/k3s-gitops，私有）里没有该目录——节点层配置是单点，dummy0 改动目前只活在那两台机器上。建议补进 gitops 仓库。
-3. Windows PowerShell 5.1 四坑已入档：中文路径的 .ps1 必须无中文或参数传入（编码）；curl JSON 必须 `-d @file`（吞引号）；远程 bash 里的 `sed '$d'` 要写成 `\$d`；**SSH 远程命令内层引号必被剥——传配置文件/脚本一律 base64**（`echo <b64> | base64 -d > file` 或 `| bash`，本项目已踩三次）。
+3. Windows PowerShell 5.1 四坑已入档：中文路径的 .ps1 必须无中文或参数传入（编码）；curl JSON 必须 `-d @file`（吞引号）；远程 bash 里的 `sed '$d'` 要写成 `\$d`；**SSH 远程命令内层引号必被剥——传配置文件/脚本一律 base64**（`echo <b64> | base64 -d > file` 或 `| bash`，本项目已踩三次）。WSL 侧再添两坑（2026-11-03）：ssh 会话**偶发僵死**（scp 已落地但远端命令链卡在起跑线，节点上无任何进程，新开 ssh 一切正常）——杀掉重跑即好，构建脚本卡住先 `ps aux | grep ssh` 排查；想顺手清僵尸时 `pkill -f 'sshd.*notty'` 会把**自己这条**无终端会话一起杀掉（自杀），别用。
 4. helm v4：upgrade 默认复用上次 --set 值（v3 行为相反），覆盖必须显式。
 5. 删 K8s Job 默认保留子 Pod，必须 `PropagationPolicy: Background`（engine/run.go 的 deleteOpts() 已封装）。
 6. `flannel-backend` 是 k3s **server 专属**参数，agent 配了会起不来（flag not defined）；worker 的 backend 由 master 下发。

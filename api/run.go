@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -76,6 +77,60 @@ func ListTasks(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, list)
+}
+
+// ---------- M3：durable 暂停的放行端点（灵魂端点） ----------
+
+// releaseMu 把"检查 pause → 翻闸门 → 落库"圈成临界区（防手抖双击放出两个续跑 goroutine）
+var releaseMu sync.Mutex
+
+// ReleaseStage POST /api/tasks/:name/:id/stages/:stage/release
+// 放行暂停中的 stage：置 ManualExec.Executed=true → 落库 → 重新 engine.Run 续跑。
+// ⚠️ 职责单一：这里只翻闸门位；task 的 pause→running 翻转只发生在 engine.Run（单一处，别做两处）。
+func ReleaseStage(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "task id must be a number"})
+		return
+	}
+
+	releaseMu.Lock()
+	defer releaseMu.Unlock()
+
+	t, err := repo.FindTask(c.Param("name"), id)
+	if err == repo.ErrNotFound {
+		c.JSON(http.StatusNotFound, gin.H{"error": "task not found"})
+		return
+	}
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	var st *models.StageTask
+	for _, s := range t.Stages {
+		if s.Name == c.Param("stage") {
+			st = s
+			break
+		}
+	}
+	if st == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "stage not found"})
+		return
+	}
+	if st.Status != models.StatusPause || st.ManualExec == nil || st.ManualExec.Executed {
+		c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("stage %q is not waiting for release (status=%s)", st.Name, st.Status)})
+		return
+	}
+
+	st.ManualExec.Executed = true // ⭐ 闸门放行位：续跑的 runStages 凭它跳过闸门
+	if err := repo.UpdateTask(t); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, t)
+	go engine.Run(t) // 续跑：passed/skipped 的 stage 已被跳过，从暂停的 stage 接着走
 }
 
 // ---------- 图纸 → 运行实例 ----------

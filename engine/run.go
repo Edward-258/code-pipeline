@@ -56,7 +56,9 @@ func Run(t *models.WorkflowTask) {
 	}
 
 	t.Status = models.StatusRunning
-	t.StartTime = time.Now().Unix()
+	if t.StartTime == 0 { // 恢复路径不覆盖首次开始时间（M3：release 续跑 = 重新 Run 同一棵树）
+		t.StartTime = time.Now().Unix()
+	}
 	ack(t)
 	log.Printf("engine: task %s/%d running", t.WorkflowName, t.TaskID)
 
@@ -71,6 +73,21 @@ func runStages(tc *taskCtx, t *models.WorkflowTask) {
 	for _, st := range t.Stages {
 		if st.Status == models.StatusPassed || st.Status == models.StatusSkipped {
 			continue
+		}
+
+		// M3 闸门（对照 Zadig stage.go waitForManualExec）：stage 开跑前若启用手动执行且未放行
+		// → stage/task 置 pause 落库 → goroutine 直接 return（不 sleep 不占线程）。
+		// durable 的全部秘密：此刻起世上只剩 Mongo 里这份 pause 档案，进程死活与它无关；
+		// release 端点标记 Executed=true 后重新 Run，凭上面的跳过逻辑从暂停的 stage 接着跑。
+		if stageGated(st) {
+			st.Status = models.StatusPause
+			if st.ManualExec != nil {
+				st.ManualExec.NotificationSent = true // 对照 Zadig 通知去重位；学习版只置位不发送
+			}
+			t.Status = models.StatusPause
+			tc.ack(t)
+			log.Printf("engine: task %s/%d paused at stage %q (waiting release)", t.WorkflowName, t.TaskID, st.Name)
+			return // ⭐ 不走 finish：任务没结束，只是暂停
 		}
 
 		st.Status = models.StatusRunning
@@ -131,6 +148,12 @@ func runStage(tc *taskCtx, t *models.WorkflowTask, st *models.StageTask) {
 		}
 		runJobTask(tc, t, st, jt)
 	}
+}
+
+// stageGated —— M3 闸门判断（对照 Zadig waitForManualExec 的三个前置）：
+// 启用了手动执行、且人还没放行过（Executed 由 release 端点翻 true）
+func stageGated(st *models.StageTask) bool {
+	return st.ManualExec != nil && st.ManualExec.Enabled && !st.ManualExec.Executed
 }
 
 // stageBraked —— 串行模式下刹车判断：stage 内已有 job 命中 StatusStopped
