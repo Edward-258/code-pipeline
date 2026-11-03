@@ -29,7 +29,7 @@
 
 ## 2. 当前进度（截至 2026-11-03）
 
-**M0 + M1 + M2 + M3 已完成**。M1 = run 端点 → counter 发号 → 快照落库 → K8s Job 创建/轮询/清理 → ack 全量写；引擎已镜像化部署进 k3s，经 ingress 对外。M2 = runStages 状态机（stage 内并行/串行 + 最差者胜聚合 + 失败刹车），细节见下方里程碑列表。M3 = durable 暂停（闸门落库+goroutine 退出 → kill 引擎 Pod 档案仍在 → release 续跑）。两个生产级 bug 的教训已固化进代码注释：task `_id` 必须插入前定为自然键 `<wf>-<taskID>`（否则 ack 全部静默失效）；删 Job 必须显式 `PropagationPolicy: Background`（否则留孤儿 Pod）。基础设施侧 2026-11-02/03 两连升：registry:2 移交 ArgoCD + 引擎镜像分发改走 ACR 个人版（决断 #11/#12）。
+**M0 + M1 + M2 + M3 + M3.5 已完成**。M1 = run 端点 → counter 发号 → 快照落库 → K8s Job 创建/轮询/清理 → ack 全量写；引擎已镜像化部署进 k3s，经 ingress 对外。M2 = runStages 状态机（stage 内并行/串行 + 最差者胜聚合 + 失败刹车），细节见下方里程碑列表。M3 = durable 暂停（闸门落库+goroutine 退出 → kill 引擎 Pod 档案仍在 → release 续跑）。M3.5 = 启动宣判（running 孤儿档案 cancelled + 泄漏 Job 清理；pause 稳态不碰——分叉自 Zadig，它连 waiting-approve 一起取消）。两个生产级 bug 的教训已固化进代码注释：task `_id` 必须插入前定为自然键 `<wf>-<taskID>`（否则 ack 全部静默失效）；删 Job 必须显式 `PropagationPolicy: Background`（否则留孤儿 Pod）。基础设施侧 2026-11-02/03 两连升：registry:2 移交 ArgoCD + 引擎镜像分发改走 ACR 个人版（决断 #11/#12）。
 
 里程碑总览（详细验收标准见桌面 `mini-zadig-计划.md`）：
 
@@ -37,6 +37,7 @@
 - [x] M1 第一口气：run → K8s Job → 轮询 → ack → 清理（本地与集群双验收过）
 - [x] **M2 状态机**（2026-11-01 完成，镜像 0.2.0）：runStages（stage 内 Parallel 并行/串行）+ WorstOf 最差者胜聚合 + 失败刹车（串行=剩余 job 置 skipped；并行=全员跑完再聚合；后续 stage 全 skipped）。验收 22 断言全过（`C:\Temp\opencode\test-m2.ps1`，走 ingress）
 - [x] **M3 灵魂时刻**（2026-11-03 完成，镜像 0.3.0）：runStages 闸门（`stageGated`，对照 Zadig waitForManualExec）→ pause 落库 + goroutine 直接 return；release 端点 `POST /api/tasks/:name/:id/stages/:stage/release`（releaseMu 防双击；只翻 `Executed` 位，pause→running 翻转单点在 engine.Run）；Run() 的 StartTime 首次标记（恢复不覆盖）。验收 11 断言全过（`deploy/test-m3.sh`，含 kill 引擎 Pod 后档案仍 pause 的 durable 证明 + 双 release 409）
+- [x] **M3.5 启动宣判**（2026-11-03 完成，镜像 0.3.1）：`engine.Recover()`（main.go 启动时跑，在 gin 起来之前）扫 created/running 孤儿档案 → `declareDead`（running→cancelled、created→skipped、终态不改写）→ 清泄漏 K8s Job。对照 Zadig queue.go:110 InitQueue "取消所有 running tasks"（revoker=system）；**有意分叉：pause 不进扫描集**（我们是无需看护人的稳态，Zadig 连 waiting-approve 一起杀）。不变量：running 要么有活着的看护人，要么是终态。验收 13 断言全过（`deploy/test-m3.5.sh`，running 死宣判+Job 清理 / pause 死存活+release 照常，两剧本对照）
 - [ ] M4 变量传递（global_context，JSON→字符串替换→反序列化）+ 单 job 重试
 - [ ] M5 真构建：fat runner（docker CLI）+ 挂宿主 docker.sock + 真 Go 项目构建推镜像（registry 已就位，M5 直接用）
 - [ ] M6 半吊子前端（单 HTML + fetch 轮询，不上框架）
@@ -112,7 +113,8 @@ go test ./repo/ -v -run TestNextID   # 需先 port-forward mongo
 3. **状态聚合最差者胜**：Zadig 原版 cancelled(7)>timeout(6)>failed(5)>pause(4)>reject(3)>passed(2)>unstable(1)>skipped(0)。**学习版已落地**（`models/status.go` 的 statusWeight/WorstOf）：cancelled(7)>failed(6)>pause(5)>running(4)>passed(3)>created(2)>skipped(1)——running 排在 passed 前（没跑完不许宣布成功），skipped 垫底（被刹车跳过的 job 不改变聚合结果）。
 4. **ack() 全量写**：任务每前进一步把整棵树 ReplaceOne 写回，不做增量 patch。前提：`_id` 是插入前定好的自然键字符串（`<wf>-<taskID>`）——空 `_id` 插入会让 Mongo 生成 ObjectId 而结构体拿不回，ack 从此静默失效（M1 踩过）。
 5. **变量渲染**：JSON marshal → 字符串 `{{.key}}` 替换 → unmarshal（M4 照抄 Zadig 的"粗暴"方案）。
-6. **构建 job 的真身是 freestyle + 步骤列表**（2026-11-03 核对实证，见 §7 新增行）：`zadig-build` 在 `initJobCtl` 的 switch 里没有专门 case，落 default = FreestyleJobCtl。步骤（git → shell 编译 → docker_build → …）在 **Pod 内**由 jobexecutor 顺序执行（失败且非 OnFailure 则跳过剩余步骤），步骤状态经 ConfigMap（名字=K8sJobName）回传、aslan 每秒轮询。"分节点分界面"的数据源就是 workflow_task 里 stages→jobs→steps 三级状态树，前端无特殊机制。我们做步骤化时可用 bash 驱动脚本替代 jobexecutor 二进制（ConfigMap 放 steps JSON，逐条执行回写）。
+6. **启动宣判，不复活**（M3.5，对照 Zadig InitQueue）：进程重启后遗留的 running 档案宣判 cancelled（revoker 语义=system）、泄漏 Job 清掉，用户重跑即可——adopt 半跑任务树是不确定性的脏活。pause 例外：它是无需看护人的稳态，跨重启存活（比 Zadig 更 durable，有意为之）。
+7. **构建 job 的真身是 freestyle + 步骤列表**（2026-11-03 核对实证，见 §7 新增行）：`zadig-build` 在 `initJobCtl` 的 switch 里没有专门 case，落 default = FreestyleJobCtl。步骤（git → shell 编译 → docker_build → …）在 **Pod 内**由 jobexecutor 顺序执行（失败且非 OnFailure 则跳过剩余步骤），步骤状态经 ConfigMap（名字=K8sJobName）回传、aslan 每秒轮询。"分节点分界面"的数据源就是 workflow_task 里 stages→jobs→steps 三级状态树，前端无特殊机制。我们做步骤化时可用 bash 驱动脚本替代 jobexecutor 二进制（ConfigMap 放 steps JSON，逐条执行回写）。
 
 ## 7. Zadig 参考文件地图（写对应模块前先读）
 

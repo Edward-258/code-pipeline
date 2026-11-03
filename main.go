@@ -5,6 +5,7 @@ import (
 
 	"pipeline/api"
 	"pipeline/config"
+	"pipeline/engine"
 	"pipeline/repo"
 )
 
@@ -15,6 +16,8 @@ func main() {
 		log.Fatalf("connect mongodb failed: %v", err)
 	}
 	log.Printf("connected to mongodb")
+
+	engine.Recover() // M3.5 启动宣判：上一世遗留的 created/running 档案宣判死亡（pause 不动）
 
 	r := api.NewRouter()
 	log.Printf("mini-pipeline listening on %s", cfg.HTTPAddr)

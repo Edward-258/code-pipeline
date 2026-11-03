@@ -88,6 +88,7 @@ helm upgrade mini-pipeline deploy/chart/mini-pipeline --kube-context k3s-heyuan 
 - [x] M1 第一口气：run → K8s Job → 轮询 → ack → 清理；引擎 helm 化进集群
 - [x] M2 多 stage 状态机（并行 + 最差者胜 + 失败刹车）
 - [x] M3 durable 暂停/恢复（灵魂；kill pod 验证，11 断言 `deploy/test-m3.sh` 全过，镜像 0.3.0）
+- [x] M3.5 启动宣判（孤儿 running 档案 cancelled + 泄漏 Job 清理，pause 稳态不碰；13 断言 `deploy/test-m3.5.sh` 全过，镜像 0.3.1）
 - [ ] M4 变量传递 + 重试
 - [ ] M5 fat runner + 真 Go 项目构建推镜像（registry 已就位）
 - [ ] M6 半吊子前端

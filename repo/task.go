@@ -44,6 +44,31 @@ func UpdateTask(t *models.WorkflowTask) error {
 	return err
 }
 
+// InCompletedTasks —— M3.5 启动宣判的扫描源（对照 Zadig workflow_task_v4.go:259 同名函数）。
+// 只捞 created/running：这两种状态的看护人 goroutine 已随上一世进程死掉。
+// ⚠️ 故意不含 pause——暂停是无需看护人的稳态（M3 灵魂），跨重启存活；
+// Zadig 原版连 waiting-approve 一起取消，这里是有意的分叉点。
+func InCompletedTasks() ([]*models.WorkflowTask, error) {
+	opts := options.Find().SetSort(bson.D{{Key: "created_at", Value: 1}})
+	cur, err := TaskColl.Find(context.TODO(), bson.M{
+		"status": bson.M{"$in": []models.Status{models.StatusCreated, models.StatusRunning}},
+	}, opts)
+	if err != nil {
+		return nil, err
+	}
+	defer cur.Close(context.TODO())
+
+	var out []*models.WorkflowTask
+	for cur.Next(context.TODO()) {
+		var t models.WorkflowTask
+		if err := cur.Decode(&t); err != nil {
+			return nil, err
+		}
+		out = append(out, &t)
+	}
+	return out, cur.Err()
+}
+
 func ListTasks(workflowName string, limit int64) ([]*models.WorkflowTask, error) {
 	if limit <= 0 {
 		limit = 20
