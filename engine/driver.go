@@ -1,0 +1,65 @@
+package engine
+
+import (
+	"fmt"
+	"strings"
+
+	"pipeline/models"
+)
+
+// GenerateDriverScript —— 把步骤列表编译成一段 POSIX sh 驱动脚本：我们的 jobexecutor
+// （对照 Zadig 在 Pod 里跑 jobexecutor Go 二进制；我们没有二进制，引擎直接代码生成脚本）。
+//
+// 协议（banner）：
+//
+//	===MP=== STEP-START <name>
+//	===MP=== STEP-END <name> passed|failed exit=<n>
+//
+// 引擎每 2s 刮 Pod 日志反解 banner 维护步骤状态（engine/logs.go）——日志流就是状态信道，
+// 零新依赖零 RBAC。失败即停：对照 jobexecutor 的 hasFailed && !OnFailure（剩余步骤不跑，
+// 引擎侧置 skipped），失败退出码透传给 Pod（决断 #3"Pod 退出码 = job 结果"继续成立）。
+func GenerateDriverScript(steps []*models.StepSpec) (string, error) {
+	var b strings.Builder
+	b.WriteString(driverPrelude)
+
+	// 先全部渲染：任一步骤规格非法（如 git 没 repo）在这里就报错，别等 Pod 起来才炸
+	for i, s := range steps {
+		frag, err := newStepCtl(s).PreRun()
+		if err != nil {
+			return "", fmt.Errorf("step %q: %w", s.Name, err)
+		}
+		fmt.Fprintf(&b, "\nmp_step_%d() {\n%s\n}\n", i+1, frag)
+	}
+
+	b.WriteString("\n")
+	for i, s := range steps {
+		fmt.Fprintf(&b, "mp_run '%s' mp_step_%d\n", s.Name, i+1)
+	}
+	return b.String(), nil
+}
+
+// driverPrelude —— 驱动脚本的公共骨架。⚠️ 保持 POSIX sh（alpine 是 ash 不是 bash）：
+// 不用 local、不用 [[ ]]、不用数组。$1=步骤名（banner 用），$2=步骤函数名。
+//
+// say 的前置 \n 是协议护栏：步骤输出可能没有尾换行（如 printf 无 \n 的 XML），
+// 直接 echo 会让 banner 黏在输出尾部、不在行首——解析器就看瞎了。
+// EXIT trap 是另一道护栏：步骤体里写裸 `exit N` 时 shell 直接死亡、mp_run 的
+// END banner 永远到不了——trap 此刻补发末班 banner，退出码不丢。
+// 正常路径先把 MP_CUR 清空再 exit，trap 看到空就哑火，不会双打。
+const driverPrelude = `say() { printf '\n===MP=== %s\n' "$*"; }
+MP_CUR=""
+mp_run() {
+  say "STEP-START $1"
+  MP_CUR="$1"
+  "$2"
+  rc=$?
+  MP_CUR=""
+  if [ "$rc" -eq 0 ]; then
+    say "STEP-END $1 passed exit=0"
+  else
+    say "STEP-END $1 failed exit=$rc"
+    exit "$rc"
+  fi
+}
+trap 'rc=$?; if [ -n "$MP_CUR" ]; then say "STEP-END $MP_CUR failed exit=$rc"; fi' EXIT
+`

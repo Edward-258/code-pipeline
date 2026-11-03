@@ -27,9 +27,9 @@
 2. Stage 状态机 + **durable 暂停**（暂停=落库+goroutine 退出，进程重启可恢复）
 3. Job = K8s Job
 
-## 2. 当前进度（截至 2026-11-03）
+## 2. 当前进度（截至 2026-11-04）
 
-**M0 + M1 + M2 + M3 + M3.5 已完成**。M1 = run 端点 → counter 发号 → 快照落库 → K8s Job 创建/轮询/清理 → ack 全量写；引擎已镜像化部署进 k3s，经 ingress 对外。M2 = runStages 状态机（stage 内并行/串行 + 最差者胜聚合 + 失败刹车），细节见下方里程碑列表。M3 = durable 暂停（闸门落库+goroutine 退出 → kill 引擎 Pod 档案仍在 → release 续跑）。M3.5 = 启动宣判（running 孤儿档案 cancelled + 泄漏 Job 清理；pause 稳态不碰——分叉自 Zadig，它连 waiting-approve 一起取消）。两个生产级 bug 的教训已固化进代码注释：task `_id` 必须插入前定为自然键 `<wf>-<taskID>`（否则 ack 全部静默失效）；删 Job 必须显式 `PropagationPolicy: Background`（否则留孤儿 Pod）。基础设施侧 2026-11-02/03 两连升：registry:2 移交 ArgoCD + 引擎镜像分发改走 ACR 个人版（决断 #11/#12）。
+**M0 + M1 + M2 + M3 + M3.5 + 核心 CI/CD 已完成**。M1 = run 端点 → counter 发号 → 快照落库 → K8s Job 创建/轮询/清理 → ack 全量写；引擎已镜像化部署进 k3s，经 ingress 对外。M2 = runStages 状态机（stage 内并行/串行 + 最差者胜聚合 + 失败刹车）。M3 = durable 暂停（闸门落库+goroutine 退出 → kill 引擎 Pod 档案仍在 → release 续跑）。M3.5 = 启动宣判（running 孤儿档案 cancelled + 泄漏 Job 清理；pause 稳态不碰——分叉自 Zadig，它连 waiting-approve 一起取消）。核心 CI/CD = 步骤化三级树 + bash driver + junit 门禁 + 分步日志（2026-11-04）。两个生产级 bug 的教训已固化进代码注释：task `_id` 必须插入前定为自然键 `<wf>-<taskID>`（否则 ack 全部静默失效）；删 Job 必须显式 `PropagationPolicy: Background`（否则留孤儿 Pod）。基础设施侧三连升：registry:2 移交 ArgoCD（#11）+ 引擎镜像走 ACR（#12）+ runner 镜像走 ACR（#12 扩展，2026-11-04）。
 
 里程碑总览（详细验收标准见桌面 `mini-zadig-计划.md`）：
 
@@ -38,11 +38,12 @@
 - [x] **M2 状态机**（2026-11-01 完成，镜像 0.2.0）：runStages（stage 内 Parallel 并行/串行）+ WorstOf 最差者胜聚合 + 失败刹车（串行=剩余 job 置 skipped；并行=全员跑完再聚合；后续 stage 全 skipped）。验收 22 断言全过（`C:\Temp\opencode\test-m2.ps1`，走 ingress）
 - [x] **M3 灵魂时刻**（2026-11-03 完成，镜像 0.3.0）：runStages 闸门（`stageGated`，对照 Zadig waitForManualExec）→ pause 落库 + goroutine 直接 return；release 端点 `POST /api/tasks/:name/:id/stages/:stage/release`（releaseMu 防双击；只翻 `Executed` 位，pause→running 翻转单点在 engine.Run）；Run() 的 StartTime 首次标记（恢复不覆盖）。验收 11 断言全过（`deploy/test-m3.sh`，含 kill 引擎 Pod 后档案仍 pause 的 durable 证明 + 双 release 409）
 - [x] **M3.5 启动宣判**（2026-11-03 完成，镜像 0.3.1）：`engine.Recover()`（main.go 启动时跑，在 gin 起来之前）扫 created/running 孤儿档案 → `declareDead`（running→cancelled、created→skipped、终态不改写）→ 清泄漏 K8s Job。对照 Zadig queue.go:110 InitQueue "取消所有 running tasks"（revoker=system）；**有意分叉：pause 不进扫描集**（我们是无需看护人的稳态，Zadig 连 waiting-approve 一起杀）。不变量：running 要么有活着的看护人，要么是终态。验收 13 断言全过（`deploy/test-m3.5.sh`，running 死宣判+Job 清理 / pause 死存活+release 照常，两剧本对照）
+- [x] **核心 CI/CD**（2026-11-04 完成，镜像 0.4.4，runner `pipeline-runner:0.1.0` 进 ACR）：spec.steps 三级树（stage→job→step，StepTask 自带 status/起止/Log/TestResult——分节点分界面的数据源）+ StepCtl/JobCtl 注册表（对照 Zadig 17 StepCtl/50 JobCtl 的 switch 注册）+ 引擎代码生成 POSIX sh 驱动脚本（banner 协议 `===MP=== STEP-START/END`，日志流=状态信道，零新依赖零 RBAC）+ junit 通过率门禁（AfterRun 引擎侧解析，默认 100% 翻红）+ 分步日志端点 `GET /api/tasks/:wf/:id/log?stage=&job=`。步骤首发四种：shell/git/docker_build/junit_report；旧图纸 Scripts 翻译成隐式 step "main"（EffectiveSteps 单源）。验收 26 断言全过（`deploy/test-cicd.sh`：幕0 兼容/幕2 门禁红绿/幕3 失败路径/幕4 git+ACR 拉取链路——活体 Job spec 断言 image=pipeline-runner+pullSecret=acr-credential；幕1 密封构建默认跳过，待拍板见 §8）
 - [ ] M4 变量传递（global_context，JSON→字符串替换→反序列化）+ 单 job 重试
-- [ ] M5 真构建：fat runner（docker CLI）+ 挂宿主 docker.sock + 真 Go 项目构建推镜像（registry 已就位，M5 直接用）
-- [ ] M6 半吊子前端（单 HTML + fetch 轮询，不上框架）
+- [ ] M5 真构建闭环：docker_build 密封构建（runner/docker.sock/StepCtl 已就绪；卡在节点 daemon.json 放行 `<nodeIP>:30500` 或产物转 ACR 二选一，见 §8）
+- [ ] M6 半吊子前端（单 HTML + fetch 轮询，不上框架；三级树+TestResult+分步日志数据源已就绪）
 
-已有代码结构：`config/` `models/` `repo/` `api/`(CRUD+run/task) `engine/`(k8s.go 双模式 client / job.go 构建 / run.go 执行器) `docker/Dockerfile` `deploy/chart/mini-pipeline/`(helm chart) `deploy/build-push.sh`(镜像循环)。
+已有代码结构：`config/` `models/` `repo/` `api/`(CRUD+run/task+分步日志) `engine/`(k8s.go 双模式 client / job.go Job 构建 / run.go 执行器 / driver.go 脚本生成 / stepctl.go+jobctl.go 注册表 / logs.go banner 解析) `docker/`(引擎+pipeline-runner) `deploy/chart/mini-pipeline/`(helm chart) `deploy/build-push.sh`(引擎镜像) `deploy/build-runner.sh`(runner 镜像) `deploy/test-cicd.sh`(验收)。
 
 ## 3. 环境速查（全部实测可用）
 
@@ -53,8 +54,8 @@
 | k3s worker-2 | 8.155.128.81（内网 172.29.237.249）✅ 网络已修复（2026-11-01，见 §9 案例存档） |
 | kubectl context | `k3s-heyuan` |
 | MongoDB | ns `pipeline`，**ClusterIP**（chart 内置），本机调试走 `kubectl --context k3s-heyuan port-forward -n pipeline svc/mongo 27017:27017` |
-| registry:2 | **归 ArgoCD 管**（k3s-gitops `registry` app，2026-11-02 移交）。NodePort 30500 仅内网（节点 push / kubelet mirror 链路不变）；对外 `http://registry.47.113.177.198.nip.io`（ingress 反代；Docker Desktop 直连需配 insecure-registries）；前端 `http://registry-ui.47.113.177.198.nip.io`（joxit UI，同源代理 /v2/，可浏览/删镜像）。**2026-11-03 起退居 M5 流水线产物专用**（引擎镜像已改走 ACR） |
-| **ACR 个人版** | 引擎镜像分发仓库（2026-11-03 起）：独立实例 `crpi-28fqgwft325ylccc.cn-heyuan.personal.cr.aliyuncs.com`（公网推送）+ `-vpc` 后缀变体（集群 VPC 拉取，免公网流量）。命名空间 `codepipeline-learning`，用户名 `nick9188231182`，密码在 chart values `acr.password`。build 必须 `--provenance=false`（详见 §9.12）；老共享域名 `registry.cn-heyuan.aliyuncs.com` 不属于本实例（Forbidden Host），别用 |
+| registry:2 | **归 ArgoCD 管**（k3s-gitops `registry` app，2026-11-02 移交）。NodePort 30500 仅内网（节点 push / kubelet mirror 链路不变）；对外 `http://registry.47.113.177.198.nip.io`（ingress 反代；Docker Desktop 直连需配 insecure-registries）；前端 `http://registry-ui.47.113.177.198.nip.io`（joxit UI，同源代理 /v2/，可浏览/删镜像）。引擎与 runner 镜像均已走 ACR，现仅剩 docker_build 产物链路候选（去留待定，见 §8） |
+| **ACR 个人版** | 引擎 + runner 镜像分发仓库：独立实例 `crpi-28fqgwft325ylccc.cn-heyuan.personal.cr.aliyuncs.com`（公网推送）+ `-vpc` 后缀变体（集群 VPC 拉取，免公网流量）。命名空间 `codepipeline-learning` 下两仓：`mini-pipeline`（引擎）、`pipeline-runner`（步骤执行器，chart values `runner.image`）。用户名 `nick9188231182`，密码在 chart values `acr.password`。build 必须 `--provenance=false`（详见 §9.9）；老共享域名 `registry.cn-heyuan.aliyuncs.com` 不属于本实例（Forbidden Host），别用 |
 | 引擎入口 | `https://pipeline.47.113.177.198.nip.io`（复用集群现成 nip.io+ingress-nginx 链路，SG 80/443 已放行） |
 | 安全组 | `sg-f8z8wcoum4myexrjfr40`；**30017 已收掉**，现有 80/443/6443/22/3389 + 同组内网互通 |
 | 集群存量 | argocd（ns argocd）、ingress-nginx（DaemonSet hostNetwork 双 worker）——都不是我们的，别动 |
@@ -74,7 +75,7 @@
 9. 挂 docker.sock 的 Pod ≈ 节点 root，仅限学习集群，fat image 永不推公网。
 10. Mongo 密码明文写在 chart values 和 config/config.go——学习版接受，此仓库别推公开远端（2026-11-03 起已有**私有**远端 `origin` = github.com/Edward-258/code-pipeline，保持私有即合规；ACR 密码 `acr.password` 同档处理，只进私有处）。
 11. **registry:2 归 ArgoCD 管**（2026-11-02）：资源清单进 k3s-gitops 仓库（`registry` app，app-of-apps 第 4 位，sync-wave 3），chart 的 `tags.registry` 默认 false 只留作全新环境 bootstrap。新增 ingress 反代 `registry.47.113.177.198.nip.io` 供本机直连（无认证无 TLS 公网可达，仅学习期接受）。helm→argocd 移交手法见 §9.8。
-12. **引擎镜像分发走 ACR 个人版独立实例**（2026-11-03）：push = 公网端点（构建侧，节点或本地），pull = VPC 端点（`-vpc` 后缀，集群内网免公网流量）；凭证 = chart 内 imagePullSecret `acr-credential`（dockerconfigjson，**只挂引擎 Deployment**，节点 registries.yaml 不动、不重启 k3s，其它镜像拉取链路零影响）。registry:2 退居 M5 流水线产物专用，两条链路互不干扰。ACR 的坑见 §9.12。
+12. **引擎镜像分发走 ACR 个人版独立实例**（2026-11-03）：push = 公网端点（构建侧，节点或本地），pull = VPC 端点（`-vpc` 后缀，集群内网免公网流量）；凭证 = chart 内 imagePullSecret `acr-credential`（dockerconfigjson，节点 registries.yaml 不动、不重启 k3s，其它镜像拉取链路零影响）。**2026-11-04 扩展：runner 镜像同链路跟进**（`codepipeline-learning/pipeline-runner`，chart values `runner.image` → env `RUNNER_IMAGE` 注入引擎，升 tag 不用重编引擎）。⚠️ 引擎运行时创建的 Job Pod 必须**自带 imagePullSecrets acr-credential**（Deployment 挂的 secret 不会继承，engine/job.go buildJob 已内置）——dockerconfigjson 按 registry host 匹配，busybox 等 docker.io 公共镜像拉取不受影响。registry:2 退居流水线产物链路候选（去留待定），两条链路互不干扰。ACR 的坑见 §9.9。
 
 ## 5. 常用命令
 
@@ -84,6 +85,12 @@
 deploy/build-push.sh 0.2.2
 # 2) 升级 release（注意 helm v4 会复用上次 --set，覆盖要显式）
 helm upgrade mini-pipeline deploy/chart/mini-pipeline --kube-context k3s-heyuan -n pipeline --set image.tag=0.2.2 --set tags.engine=true --wait
+
+# ===== runner 镜像（低频；runner 变更时跑，tag 须同步 chart values runner.image） =====
+deploy/build-runner.sh 0.1.0
+
+# ===== 核心 CI/CD 验收 =====
+bash deploy/test-cicd.sh              # 幕1 默认跳过；MP_ACT1=1 启用（需节点 daemon.json 放行，见 §8）
 
 # ===== git 远端（私有 GitHub） =====
 git push   # GCM 凭证桥已配在仓库 local config，裸敲即可（首次会弹 Windows 登录窗）
@@ -115,6 +122,7 @@ go test ./repo/ -v -run TestNextID   # 需先 port-forward mongo
 5. **变量渲染**：JSON marshal → 字符串 `{{.key}}` 替换 → unmarshal（M4 照抄 Zadig 的"粗暴"方案）。
 6. **启动宣判，不复活**（M3.5，对照 Zadig InitQueue）：进程重启后遗留的 running 档案宣判 cancelled（revoker 语义=system）、泄漏 Job 清掉，用户重跑即可——adopt 半跑任务树是不确定性的脏活。pause 例外：它是无需看护人的稳态，跨重启存活（比 Zadig 更 durable，有意为之）。
 7. **构建 job 的真身是 freestyle + 步骤列表**（2026-11-03 核对实证，见 §7 新增行）：`zadig-build` 在 `initJobCtl` 的 switch 里没有专门 case，落 default = FreestyleJobCtl。步骤（git → shell 编译 → docker_build → …）在 **Pod 内**由 jobexecutor 顺序执行（失败且非 OnFailure 则跳过剩余步骤），步骤状态经 ConfigMap（名字=K8sJobName）回传、aslan 每秒轮询。"分节点分界面"的数据源就是 workflow_task 里 stages→jobs→steps 三级状态树，前端无特殊机制。我们做步骤化时可用 bash 驱动脚本替代 jobexecutor 二进制（ConfigMap 放 steps JSON，逐条执行回写）。
+8. **日志流=状态信道**（核心 CI/CD 落地，2026-11-04）：引擎把 steps 编译成 POSIX sh 驱动脚本（每步函数化 mp_step_N + mp_run 包装 + banner `===MP=== STEP-START/END <name> passed|failed exit=N`），Pod stdout 就是步骤状态信道——与 Zadig jobexecutor+ConfigMap 信息流等价但路径更短（零新依赖零 RBAC）。引擎每 2s 刮 Pod 日志**幂等重放** banner 维护三级树；终态 SaveInfo 全量收割→切分→收口（AfterRun 门禁）→再 Clean 删 Job（**顺序铁律 Run→SaveInfo→Clean，先收割再销毁**）。护栏三件套见 §9.10/§9.11。
 
 ## 7. Zadig 参考文件地图（写对应模块前先读）
 
@@ -135,16 +143,18 @@ go test ./repo/ -v -run TestNextID   # 需先 port-forward mongo
 | 保留策略 | `.../system/service/capacity.go` |
 | helm chart 形态 | 独立 chart 仓库 `koderover-chart/zadig`（tags.* + connections.* 参数化，主仓库只出 docker/*.Dockerfile） |
 
-## 8. 下一步：核心 CI/CD（步骤化 + 真构建 + junit 门禁）
+## 8. 下一步
 
-> 2026-11-03 状态：**M3 完成，三条灵魂全部及格**。用户方向 = "分节点分界面的编译构建 + 统一生命周期管理"（直接上核心 CI/CD）。完整设计在计划文件 `~/.claude/plans/mellow-spinning-acorn.md`（含 Zadig 源码核对结论：无 job 级 DAG、扩展性=JobCtl/StepCtl 类型注册表、junit 门禁在执行器侧）。要点：
-> 1. 模型：StepSpec/StepTask（步骤自带 status/起止/Log/TestResult）——分界面的三级树数据源；旧图纸 Scripts 翻译成隐式 step "main"
-> 2. executor：bash 驱动脚本（引擎代码生成，banner 标记 + 失败即停）+ 引擎轮询 Pod 日志解析步骤状态（不用 ConfigMap——alpine 无 curl 免 SA 改造，M4 outputs 再升级）
-> 3. 注册表：JobCtl{Run,Clean,SaveInfo} + StepCtl{PreRun,AfterRun}，step 首发四种 shell/git/docker_build/junit_report（junit 门禁在引擎侧 AfterRun，Zadig 在执行器侧，语义等价）
-> 4. 真构建：mini-runner 瘦镜像（alpine+git+docker-cli，进 registry:2 走 localhost:5000 mirror 免认证）+ hostPath docker.sock（决断 #5）+ downward API 注入 `<nodeIP>:30500` push 端点
-> 5. 其后才是 M4（变量渲染/outputs/重试，挂靠点已留）与 M6 前端
+> 2026-11-04 状态：**核心 CI/CD 完成**（步骤化三级树 + bash driver + junit 门禁 + 分步日志 + runner 进 ACR；26 断言全过，镜像 0.4.4）。设计底稿 `~/.claude/plans/mellow-spinning-acorn.md`（含 Zadig 源码核对结论）。
 
-M3 完成细节（留档）：闸门 `engine/run.go:stageGated`、端点 `api/run.go:ReleaseStage`（releaseMu 防双击，只翻 Executed 位；pause→running 翻转单点在 engine.Run，StartTime 首次标记）。
+未竟事项（按优先级）：
+
+1. **幕1 密封构建**（docker_build → registry:2 → 临时 Job 拉起产物闭环）：被节点 daemon.json 放行 `<nodeIP>:30500` 拦住（权限分类器定性 Remote Shell Writes / TLS-Auth Weaken，补丁脚本 `deploy/fix-daemon-insecure.sh` 留档仓内待批）。**二选一**：批补丁跑通原链路，或产物也转 ACR（runner 已在 ACR，同链路则补丁作废；代价 = docker_build 步骤需 docker login 凭证注入 + kubelet 拉产物也要 imagePullSecret）。拍板前 test-cicd.sh 幕1 默认跳过（`MP_ACT1=1` 启用）。
+2. **自举彩蛋**：git 步骤克隆私有 code-pipeline 仓库构建引擎自身镜像（需用户提供 GitHub PAT；公开仓库克隆已验通——幕4 octocat/Hello-World）。
+3. **M4 变量传递**：global_context（JSON marshal → `{{.key}}` 替换 → unmarshal，Zadig 粗暴方案）+ 单 job 重试 + outputs（StepCtl 挂点已留）。
+4. **M6 半吊子前端**：单 HTML + fetch 轮询；数据源已就绪（task 树带 steps/TestResult + 分步日志端点）。
+
+核心 CI/CD 完成细节（留档）：driver 生成 `engine/driver.go`（⚠️ POSIX sh——alpine 是 ash，无 local/[[ ]]/数组）；banner 解析/切分/收口 `engine/logs.go`（applyStepBanners 幂等重放且**行中 banner 也认** / sliceStepLogs 按 START 切段，未知步骤进黑洞 / finalizeSteps：created→skipped、悬空 running→failed、AfterRun 门禁、64KB 保尾部截断）；StepCtl `engine/stepctl.go`（git clone --depth 1 + token 注入 URL、docker_build 无 registry 前缀时加 `$MP_NODE_REGISTRY/`、junit 只认 testsuite 开标签属性跳过 testsuites 包装层防双算）；JobCtl `engine/jobctl.go`（Run 轮询循环内顺手刮日志、SaveInfo **稳定探测**收割 stderr 见 §9.10）；镜像三档 spec.image > runner > busybox；roundtrip 测试 `engine/driver_roundtrip_test.go` 真 /bin/sh 跑→CombinedOutput→banner 反解→finalize 全链。
 
 ## 9. 案例存档 / 已知坑
 
@@ -158,6 +168,8 @@ M3 完成细节（留档）：闸门 `engine/run.go:stageGated`、端点 `api/ru
 4. helm v4：upgrade 默认复用上次 --set 值（v3 行为相反），覆盖必须显式。
 5. 删 K8s Job 默认保留子 Pod，必须 `PropagationPolicy: Background`（engine/run.go 的 deleteOpts() 已封装）。
 6. `flannel-backend` 是 k3s **server 专属**参数，agent 配了会起不来（flag not defined）；worker 的 backend 由 master 下发。
-7. PowerShell 5.1 再添两坑（2026-11-01，都在 M2 期间踩的）：**手拼 JSON 字符串必数错括号**——用 hashtable + `ConvertTo-Json` 构造（见 test-m2.ps1 的 Job/Ensure-Workflow 函数）；**`Set-Content -Encoding ASCII` 会把文件里的中文全毁成 `?`**（批量替换 values.yaml 时差点全毁，`git diff` 出现 32 行异常变更才发现）——改文件走编辑工具，批量文本操作后必 `git diff` 自检。
+7. PowerShell 5.1 再添两坑（2026-11-01，都在 M2 期间踩的）：**手拼 JSON 字符串必数错括号**——用 hashtable + `ConvertTo-Json` 构造（见 test-m2.ps1 的 Job/Ensure-Workflow 函数）；**`Set-Content -Encoding ASCII` 会把文件里的中文全毁成 `?`**（批量替换 values.yaml 时差点全毁，`git diff` 出现 32 行异常变更才发现）——改文件走编辑工具，批量文本操作后必 `git diff` 自检。**手拼 JSON 坑 2026-11-04 在 bash heredoc 复发**：test-cicd.sh 手写 body 尾部多一个 `]`，此前仓内版从没真正跑过（一直跑的是 python 生成的 /tmp 版）才发现；现 ensure_wf 已加 `jq -e .name` 预检，手数错误当场炸亮而不是静默错断言。复杂 body 一律 python json.dumps。
 8. **helm→argocd 资源移交**（2026-11-02，registry:2 实操）：直接让 ArgoCD SSA 接管 helm 部署的资源会打架（`managed-by: Helm` 标签的字段所有权冲突）。正确三步：① 活体 PVC 先打 `helm.sh/resource-policy: keep` 注解——否则 helm upgrade 摘除时连数据卷一起删（默认回收策略下 PV 也没了，镜像全灭）；② `helm upgrade --set tags.<x>=false` 摘除资源；③ 新清单**逐字段抄活体**（storageClassName 等默认值都要抄）先 `kubectl apply` 铺上再推 git，ArgoCD 认领零漂移（出现即 Synced/Healthy），停机窗口秒级。附带发现：ArgoCD 对新 app 的发现依赖 root app 刷新（默认 ~3min 轮询），等不及可 `kubectl patch application root -n argocd -p '{"metadata":{"annotations":{"argocd.argoproj.io/refresh":"normal"}}}' --type merge` 手动触发（UI 的 Refresh 按钮同款）。
 9. **ACR 个人版推送三坑**（2026-11-03，引擎镜像迁 ACR 实录）：① 新版个人版是"独立实例"形态，专属域名带 `crpi-` 前缀（本实例 `crpi-28fqgwft325ylccc.cn-heyuan.personal.cr.aliyuncs.com`）；老共享域名 `registry.cn-heyuan.aliyuncs.com` 对它一律 **Forbidden Host**（端点活着但不是它的家，别被 401 挑战骗了）。② ACR 拒收 BuildKit 默认生成的 provenance/attestation 附加清单，报 `unknown manifest class for application/vnd.oci.empty.v1+json`；`docker build --provenance=false` 即解，层已推上去不受影响（重推全命中 Layer already exists）。③ 认证是 Bearer token 流：`curl -u` 直怼 `/v2/` 永远 401（不代表凭证错，我为此冤枉猜过三种用户名格式）；正经测法 = 先去 `dockerauth-cn-heyuan.aliyuncs.com/auth?service=…&scope=…` 换 token，且返回字段叫 `access_token` 不是 `token`（jq 取 .token 会拿到 null → 报 Forbidden Host 的迷惑性错误）。仓库无需预建，push 自动创建。aliyun CLI 的 `cr` 元数据 API（老 ROA 接口）本版本调不通，registry HTTP API 完全够用。④ **helm chart 存不进免费版**（2026-11-03 实测）：`helm push` OCI 形式报 `unknown manifest class for application/vnd.cncf.helm.config.v1+json`——manifest 白名单只认镜像类，chart 托管是 EE 能力。chart 真相源留在 git 仓库即可，镜像走 ACR / chart 走 git 本就是标准分工。
+10. **containerd stderr 迟到竞态**（2026-11-04，E2E 最后一个红灯的根因）：containerd 用两条读线程分别收容器 stdout/stderr 再拼进同一日志文件，**stderr 行可比 Job 终态晚 1~2 秒落盘**（实测终态后 ~1.6s 仍可能没到）。Job 刚终态就 podLog 收割会丢 stderr——失败步骤的报错恰恰都在 stderr。修法 = SaveInfo 的**稳定探测**（`engine/jobctl.go`）：600ms 间隔重拉，连续两次长度一致才算收完，上限 ~3s 兜底。教训：Pod 日志接口在容器死后不是原子快照，"终态=日志完整"这个直觉是错的。
+11. **driver banner 协议的两道护栏**（2026-11-04，两个真 bug 均实测复现后修复）：① **黏连 banner**——步骤输出可能没有尾换行（printf 无 \n 的 junit XML），echo 出的 banner 会黏在输出尾部不在行首、解析器看瞎 → 双修：say() 用 `printf '\n===MP=== %s\n'` 前置换行 + 解析器 `strings.Index` 行中匹配；② **裸 exit 漏 banner**——步骤体直接 `exit N` 掀翻 shell，mp_run 的 END banner 永远打不出 → EXIT trap + MP_CUR 当前步骤指针补发末班 banner（正常路径先清 MP_CUR 再 exit，trap 哑火不双打）。回归测试在 `engine/logs_test.go`（黏连）与 `driver_roundtrip_test.go`（裸 exit）。

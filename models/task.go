@@ -38,7 +38,30 @@ type JobTask struct {
 	Status     Status            `bson:"status"          json:"status"`
 	K8sJobName string            `bson:"k8s_job_name"    json:"k8s_job_name"` // M1: 真实 K8s Job 名
 	Spec       *FreestyleSpec    `bson:"spec"            json:"spec"`
+	Steps      []*StepTask       `bson:"steps,omitempty" json:"steps,omitempty"` // ⭐ 分界面的叶子层
 	Outputs    map[string]string `bson:"outputs,omitempty" json:"outputs,omitempty"` // M4
 	Error      string            `bson:"error,omitempty" json:"error,omitempty"`
 	Retry      int               `bson:"retry"           json:"retry"`
+}
+
+// StepTask —— 步骤运行时（对照 Zadig StepTask）：三级状态树 stages→jobs→steps 的叶子，
+// "分节点分界面"的数据源。状态由引擎刮 Pod 日志 banner 反解（engine/logs.go），非 runner 回报。
+type StepTask struct {
+	Name       string      `bson:"name"                 json:"name"`
+	Type       string      `bson:"type"                 json:"type"`
+	Status     Status      `bson:"status"               json:"status"`
+	StartTime  int64       `bson:"start_time,omitempty" json:"start_time,omitempty"`
+	EndTime    int64       `bson:"end_time,omitempty"   json:"end_time,omitempty"`
+	Error      string      `bson:"error,omitempty"      json:"error,omitempty"`
+	Log        string      `bson:"log,omitempty"        json:"log,omitempty"` // 分步日志（banner 切分，存档前截断 64KB）
+	TestResult *TestResult `bson:"test_result,omitempty" json:"test_result,omitempty"` // junit_report 步骤的统计
+}
+
+// TestResult —— junit XML 聚合统计（分界面展示源；门禁 = 通过率 ≥ PassRate）
+type TestResult struct {
+	Tests    int     `bson:"tests"    json:"tests"`
+	Failures int     `bson:"failures" json:"failures"`
+	Errors   int     `bson:"errors"   json:"errors"`
+	Skipped  int     `bson:"skipped"  json:"skipped"`
+	Time     float64 `bson:"time"     json:"time"`
 }

@@ -6,15 +6,17 @@
 ## 结构
 
 ```
-config/            环境配置（MONGO_URI / K8S_NAMESPACE / K8S_CONTEXT）
-models/            三集合模型（workflow / workflow_task / counter）+ 状态常量
+config/            环境配置（MONGO_URI / K8S_NAMESPACE / K8S_CONTEXT / RUNNER_IMAGE）
+models/            三集合模型（workflow / workflow_task / counter）+ 状态常量 + StepSpec/StepTask
 repo/              MongoDB 仓储层（counter 发号器 / ack 全量写）
-api/               gin HTTP 层（workflow CRUD + run + task 查询）
-engine/            执行器（双模式 K8s client / K8s Job 构建 / Run 主循环）
-docker/            引擎镜像（多阶段，实际构建发生在集群节点上）
+api/               gin HTTP 层（workflow CRUD + run + task 查询 + 分步日志）
+engine/            执行器（Run 主循环 / driver 脚本生成 / StepCtl+JobCtl 注册表 / banner 日志解析）
+docker/            引擎镜像 + pipeline-runner 镜像（alpine+git+docker-cli 瘦身）
 deploy/
   chart/mini-pipeline/   helm chart（tags.{engine,mongo,registry} 组件开关，对照 Zadig chart 模式）
-  build-push.sh           镜像构建分发一条龙（打包→scp→节点 build→push ACR）
+  build-push.sh           引擎镜像构建分发一条龙（打包→scp→节点 build→push ACR）
+  build-runner.sh         pipeline-runner 构建推 ACR（低频，runner 变更时跑）
+  test-cicd.sh            核心 CI/CD 验收（幕0 兼容 / 幕2 junit 门禁 / 幕3 失败路径 / 幕4 git+ACR 链路）
 ```
 
 ## 快速开始
@@ -49,6 +51,29 @@ wf.json 示例：
 }
 ```
 
+步骤化图纸（CI/CD 形态，spec.steps 优先于 scripts；旧图纸的 scripts 会翻译成隐式步骤 "main"）：
+
+```json
+{
+  "name": "ci-demo",
+  "stages": [{
+    "name": "test",
+    "jobs": [{
+      "name": "runner", "type": "freestyle",
+      "spec": { "steps": [
+        { "name": "fetch", "type": "git", "repo": "https://github.com/octocat/Hello-World.git", "branch": "master" },
+        { "name": "check", "type": "shell", "script": "ls; head -3 README" },
+        { "name": "junit", "type": "junit_report", "report_glob": "*.xml" }
+      ] }
+    }]
+  }]
+}
+```
+
+步骤类型四种：`shell` / `git` / `docker_build` / `junit_report`（通过率门禁，默认 100%）。
+任务树按 stage→job→step 三级返回，每步自带 status/起止时间/日志/TestResult；
+分步日志端点 `GET /api/tasks/:wf/:id/log?stage=&job=`（运行中代理 Pod 日志，终态回档案）。
+
 ## 镜像分发链路
 
 引擎镜像（2026-11-03 起）：**阿里云 ACR 个人版独立实例**（cn-heyuan，crpi- 前缀域名）
@@ -56,9 +81,14 @@ push: 节点/本地 docker push crpi-28fqgwft325ylccc.cn-heyuan.personal.cr.aliy
       ⚠️ build 必须 --provenance=false：ACR 拒收 BuildKit 默认的 provenance/attestation 清单（unknown manifest class for oci.empty.v1+json）
       ⚠️ 老共享域名 registry.cn-heyuan.aliyuncs.com 不属于本实例（Forbidden Host），别用
 pull: crpi-28fqgwft325ylccc-vpc.cn-heyuan.personal.cr.aliyuncs.com/…（VPC 端点，集群内网免公网流量）
-      凭证 = chart 内 imagePullSecret acr-credential（只挂引擎 Deployment，节点 registries.yaml 不动、不重启 k3s）
+      凭证 = chart 内 imagePullSecret acr-credential（节点 registries.yaml 不动、不重启 k3s）
 
-流水线产物镜像（M5 用）：仍走集群内 registry:2，与引擎分发互不干扰
+pipeline-runner 镜像（2026-11-04 起）：同实例同 namespace（codepipeline-learning/pipeline-runner）
+push: deploy/build-runner.sh <tag>（公网端点，push 自动建仓）
+pull: chart values runner.image（引擎创建的 Job Pod 用 VPC 端点拉取；⚠️ Job Pod 自己挂
+      acr-credential——引擎 Deployment 的 imagePullSecrets 不会继承给运行时创建的 Job）
+
+流水线产物镜像（docker_build 步骤，去留待定）：暂走集群内 registry:2，与引擎分发互不干扰
 push: 节点上 docker push 127.0.0.1:30500/mini-pipeline:<tag>（NodePort 仅内网，安全组不放公网）
 pull: 三节点 /etc/rancher/k3s/registries.yaml 把 "localhost:5000" mirror 到各节点内网 IP:30500
       → 镜像名两边一致（registry 存储剥离 host 前缀），kubelet 无感知
@@ -81,6 +111,7 @@ helm upgrade mini-pipeline deploy/chart/mini-pipeline --kube-context k3s-heyuan 
 | HTTP_ADDR | :8080 | 监听地址 |
 | K8S_NAMESPACE | pipeline | K8s Job 所在 namespace |
 | K8S_CONTEXT | （空） | 仅本机调试：kubeconfig context（如 k3s-heyuan）；集群内留空走 InClusterConfig |
+| RUNNER_IMAGE | crpi-…-vpc…/codepipeline-learning/pipeline-runner:0.1.0 | git/docker_build 步骤的默认 Job 容器（chart values runner.image 注入） |
 
 ## 里程碑
 
@@ -89,8 +120,9 @@ helm upgrade mini-pipeline deploy/chart/mini-pipeline --kube-context k3s-heyuan 
 - [x] M2 多 stage 状态机（并行 + 最差者胜 + 失败刹车）
 - [x] M3 durable 暂停/恢复（灵魂；kill pod 验证，11 断言 `deploy/test-m3.sh` 全过，镜像 0.3.0）
 - [x] M3.5 启动宣判（孤儿 running 档案 cancelled + 泄漏 Job 清理，pause 稳态不碰；13 断言 `deploy/test-m3.5.sh` 全过，镜像 0.3.1）
+- [x] 核心 CI/CD：步骤化三级树 + bash driver（banner 协议）+ StepCtl/JobCtl 注册表 + junit 门禁 + 分步日志；runner 进 ACR（26 断言 `deploy/test-cicd.sh` 全过，镜像 0.4.4）
 - [ ] M4 变量传递 + 重试
-- [ ] M5 fat runner + 真 Go 项目构建推镜像（registry 已就位）
+- [ ] M5 真构建闭环（docker_build 密封构建，待节点 daemon.json 补丁或产物转 ACR）
 - [ ] M6 半吊子前端
 
 更多工程上下文（集群状态、已踩的坑、设计决断）见 AGENTS.md。

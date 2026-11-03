@@ -24,6 +24,8 @@ func NewRouter() *gin.Engine {
 		api.POST("/workflows/:name/run", RunWorkflow)
 		api.GET("/tasks/:name", ListTasks)
 		api.GET("/tasks/:name/:id", GetTask)
+		// CI/CD：分步日志（活任务透传 Pod 尾部，死任务回档案分步日志）
+		api.GET("/tasks/:name/:id/log", GetTaskLog)
 		// M3：放行暂停的 stage（durable 暂停的灵魂端点）
 		api.POST("/tasks/:name/:id/stages/:stage/release", ReleaseStage)
 	}

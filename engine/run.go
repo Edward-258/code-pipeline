@@ -27,6 +27,7 @@ const (
 type taskCtx struct {
 	client kubernetes.Interface
 	ns     string
+	t      *models.WorkflowTask // ack 的对象（整树写回的目标）
 	mu     sync.Mutex
 }
 
@@ -62,7 +63,7 @@ func Run(t *models.WorkflowTask) {
 	ack(t)
 	log.Printf("engine: task %s/%d running", t.WorkflowName, t.TaskID)
 
-	runStages(&taskCtx{client: client, ns: cfg.K8SNamespace}, t)
+	runStages(&taskCtx{client: client, ns: cfg.K8SNamespace, t: t}, t)
 }
 
 // runStages —— 对照 Zadig RunStages：stage 严格按序，跑完聚合，失败刹车。
@@ -167,8 +168,10 @@ func stageBraked(st *models.StageTask) bool {
 }
 
 // runJobTask —— 单个 job 的状态机封装（对照 Zadig jobcontroller.job.Run）。
+// 三段式编排：Run（K8s 生命周期+live 步骤状态）→ SaveInfo（日志切分+junit 门禁+步骤收口）
+// → Clean（删执行物）。job 级失败 > 步骤级失败（门禁翻红）> passed。
 // ⚠️ jt 字段写全部在锁内：并行时兄弟 goroutine 的 ack 正在整树序列化，
-// 裸写 jt.Status = 数据竞争。K8s 侧调用（runJob）不碰共享内存，放锁外。
+// 裸写 jt.Status = 数据竞争。K8s 侧调用（ctl 内部）不碰共享内存的放锁外（ctl 自己管锁的粒度）。
 func runJobTask(tc *taskCtx, t *models.WorkflowTask, st *models.StageTask, jt *models.JobTask) {
 	defer func() { // 并行 goroutine 里的 panic 进程会直接崩，必须就地回收并置 failed
 		if r := recover(); r != nil {
@@ -188,13 +191,20 @@ func runJobTask(tc *taskCtx, t *models.WorkflowTask, st *models.StageTask, jt *m
 	tc.mu.Unlock()
 	log.Printf("engine: task %s/%d job %q -> %s", t.WorkflowName, t.TaskID, jt.Name, jt.K8sJobName)
 
-	err := runJob(tc.client, tc.ns, jt)
+	ctl := newJobCtl(jt)
+	runErr := ctl.Run(tc, jt)     // K8s 级：创建/轮询/退出码/超时（期间 live 刷步骤状态）
+	infoErr := ctl.SaveInfo(tc, jt) // 步骤级：日志切分、junit 门禁、created→skipped
+	ctl.Clean(tc, jt)               // 资源与数据分离：执行物销毁，档案长存
 
 	tc.mu.Lock()
-	if err != nil {
+	switch {
+	case runErr != nil:
 		jt.Status = models.StatusFailed
-		jt.Error = err.Error()
-	} else {
+		jt.Error = runErr.Error()
+	case infoErr != nil: // 退出码 0 但步骤翻红（junit 门禁）：job 仍然算失败
+		jt.Status = models.StatusFailed
+		jt.Error = infoErr.Error()
+	default:
 		jt.Status = models.StatusPassed
 	}
 	ack(t)
@@ -230,39 +240,7 @@ func markRestSkipped(t *models.WorkflowTask, failedStage *models.StageTask) {
 	ack(t)
 }
 
-// runJob —— 一个 K8s Job 的完整生命周期：创建 → 轮询 → 清理。
-// 资源与数据分离：K8s Job 是消耗品（结束就删），Mongo 档案才是真相源。
-// ⚠️ 只碰 K8s API 不碰共享内存——这是并行场景并发安全的前提。
-func runJob(client kubernetes.Interface, ns string, jt *models.JobTask) error {
-	// 幂等：残留同名 Job 先清（为 M4 单 job 重试 / 崩溃恢复扫清脏资源）
-	_ = client.BatchV1().Jobs(ns).Delete(context.TODO(), jt.K8sJobName, deleteOpts())
-
-	if _, err := client.BatchV1().Jobs(ns).Create(context.TODO(), buildJob(ns, jt), metav1.CreateOptions{}); err != nil {
-		return fmt.Errorf("create k8s job: %w", err)
-	}
-
-	defer func() {
-		_ = client.BatchV1().Jobs(ns).Delete(context.TODO(), jt.K8sJobName, deleteOpts())
-	}()
-
-	deadline := time.Now().Add(jobTimeout)
-	for {
-		job, err := client.BatchV1().Jobs(ns).Get(context.TODO(), jt.K8sJobName, metav1.GetOptions{})
-		if err != nil {
-			return fmt.Errorf("poll k8s job: %w", err)
-		}
-		if job.Status.Succeeded >= 1 {
-			return nil
-		}
-		if job.Status.Failed >= 1 {
-			return fmt.Errorf("exit %s", podExitInfo(client, ns, jt.K8sJobName))
-		}
-		if time.Now().After(deadline) {
-			return fmt.Errorf("timeout after %s", jobTimeout)
-		}
-		time.Sleep(pollInterval)
-	}
-}
+// runJob 的完整生命周期（创建→轮询→清理）已搬进 jobctl.go 的 K8sJobCtl（Run/SaveInfo/Clean 三段式）。
 
 // podExitInfo —— 挖出 Pod 的退出码/原因（决断 #3"Pod 退出码 = job 结果"的落点）
 func podExitInfo(client kubernetes.Interface, ns, jobName string) string {

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -133,6 +134,72 @@ func ReleaseStage(c *gin.Context) {
 	go engine.Run(t) // 续跑：passed/skipped 的 stage 已被跳过，从暂停的 stage 接着走
 }
 
+// ---------- 步骤化日志（CI/CD）：任务在跑透传 Pod 日志尾部，已结束回档案分步日志 ----------
+
+// GetTaskLog GET /api/tasks/:name/:id/log?stage=S&job=J[&step=X]
+func GetTaskLog(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "task id must be a number"})
+		return
+	}
+	t, err := repo.FindTask(c.Param("name"), id)
+	if err == repo.ErrNotFound {
+		c.JSON(http.StatusNotFound, gin.H{"error": "task not found"})
+		return
+	}
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	var jt *models.JobTask
+	for _, s := range t.Stages {
+		if s.Name != c.Query("stage") {
+			continue
+		}
+		for _, j := range s.Jobs {
+			if j.Name == c.Query("job") {
+				jt = j
+				break
+			}
+		}
+	}
+	if jt == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "stage/job not found"})
+		return
+	}
+
+	// 活的：K8s Job 还在 → 实时尾部（分界面 live 日志的来源）
+	if txt, live := engine.TailJobLog(jt.K8sJobName); live {
+		c.String(http.StatusOK, txt)
+		return
+	}
+
+	// 死的：档案里的分步日志（banner 切分结果，engine/logs.go）
+	stepFilter := c.Query("step")
+	var b strings.Builder
+	for _, st := range jt.Steps {
+		if stepFilter != "" && st.Name != stepFilter {
+			continue
+		}
+		fmt.Fprintf(&b, "=== step %s [%s] %s", st.Name, st.Type, st.Status)
+		if st.Error != "" {
+			fmt.Fprintf(&b, " — %s", st.Error)
+		}
+		b.WriteString(" ===\n")
+		if st.TestResult != nil {
+			fmt.Fprintf(&b, "tests=%d failures=%d errors=%d skipped=%d time=%.2fs\n",
+				st.TestResult.Tests, st.TestResult.Failures, st.TestResult.Errors, st.TestResult.Skipped, st.TestResult.Time)
+		}
+		if st.Log != "" {
+			b.WriteString(st.Log)
+			b.WriteString("\n")
+		}
+	}
+	c.String(http.StatusOK, b.String())
+}
+
 // ---------- 图纸 → 运行实例 ----------
 
 // buildTask —— 发号后的实例构造。⭐灵魂：WorkflowArgs 内嵌【当时的完整图纸快照】，
@@ -150,12 +217,26 @@ func buildTask(wf *models.Workflow, taskID int64) *models.WorkflowTask {
 			stt.ManualExec = &models.ManualExec{Enabled: st.ManualExec.Enabled}
 		}
 		for _, jb := range st.Jobs {
-			spec := *jb.Spec // spec 深拷贝
+			spec := *jb.Spec // spec 浅拷贝 + steps 逐个深拷贝（快照绝不共享指针）
+			if len(jb.Spec.Steps) > 0 {
+				spec.Steps = make([]*models.StepSpec, len(jb.Spec.Steps))
+				for i, ss := range jb.Spec.Steps {
+					cp := *ss
+					spec.Steps[i] = &cp
+				}
+			}
+			// 步骤翻译：图纸 steps → 运行时 StepTask（与 EffectiveSteps 同源：旧图纸 Scripts → 隐式 "main"）
+			eff := spec.EffectiveSteps()
+			steps := make([]*models.StepTask, len(eff))
+			for i, ss := range eff {
+				steps[i] = &models.StepTask{Name: ss.Name, Type: ss.Type, Status: models.StatusCreated}
+			}
 			stt.Jobs = append(stt.Jobs, &models.JobTask{
 				Name:    jb.Name,
 				JobType: jb.JobType,
 				Status:  models.StatusCreated,
 				Spec:    &spec,
+				Steps:   steps,
 			})
 		}
 		stages = append(stages, stt)
@@ -189,6 +270,13 @@ func snapshotWorkflow(wf *models.Workflow) *models.Workflow {
 		}
 		for _, jb := range st.Jobs {
 			spec := *jb.Spec
+			if len(jb.Spec.Steps) > 0 {
+				spec.Steps = make([]*models.StepSpec, len(jb.Spec.Steps))
+				for i, ss := range jb.Spec.Steps {
+					cp := *ss
+					spec.Steps[i] = &cp
+				}
+			}
 			s.Jobs = append(s.Jobs, &models.Job{Name: jb.Name, JobType: jb.JobType, Spec: &spec})
 		}
 		out.Stages = append(out.Stages, s)

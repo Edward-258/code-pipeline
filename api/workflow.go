@@ -85,11 +85,23 @@ func validateWorkflow(wf *models.Workflow) error {
 			if jb.JobType != "freestyle" {
 				return errNew("stage[%d].job[%d]: only freestyle is supported, got %q", i, j, jb.JobType)
 			}
-			if jb.Spec == nil || jb.Spec.Image == "" {
-				return errNew("stage[%d].job[%d]: spec.image is required", i, j)
+			if jb.Spec == nil {
+				return errNew("stage[%d].job[%d]: spec is required", i, j)
 			}
-			if len(jb.Spec.Scripts) == 0 {
-				return errNew("stage[%d].job[%d]: spec.scripts is required", i, j)
+			// CI/CD 起 image 可空：引擎按步骤需要选默认（git/docker_build→mini-runner，纯 shell→busybox）。
+			// steps/scripts 至少其一——引擎只认 steps，scripts 会翻译成隐式 step "main"（EffectiveSteps）
+			if len(jb.Spec.Steps) == 0 && len(jb.Spec.Scripts) == 0 {
+				return errNew("stage[%d].job[%d]: spec.steps or spec.scripts is required", i, j)
+			}
+			for _, ss := range jb.Spec.Steps {
+				if ss.Name == "" {
+					return errNew("stage[%d].job[%d]: step name is required", i, j)
+				}
+				switch ss.Type {
+				case models.StepShell, models.StepGit, models.StepDockerBuild, models.StepJunitReport:
+				default:
+					return errNew("stage[%d].job[%d]: unknown step type %q", i, j, ss.Type)
+				}
 			}
 		}
 	}

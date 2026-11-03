@@ -32,6 +32,8 @@ spec:
               value: {{ .Release.Namespace | quote }}
             - name: K8S_CONTEXT
               value: ""   # 集群内跑走 InClusterConfig；仅本机调试时才需要
+            - name: RUNNER_IMAGE
+              value: {{ .Values.runner.image | quote }}  # 步骤执行器宿体（引擎运行时创建的 Job Pod 用）
           ports:
             - containerPort: {{ .Values.service.port }}
           readinessProbe:
