@@ -7,7 +7,7 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"pipeline/models"
+	"pipeline/pkg/models"
 )
 
 // JobCtl —— 对照 Zadig jobcontroller/job.go:44 的 JobCtl 三件套（Run/Clean/SaveInfo）。

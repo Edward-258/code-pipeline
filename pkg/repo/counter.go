@@ -6,7 +6,7 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo/options"
 
-	"pipeline/models"
+	"pipeline/pkg/models"
 )
 
 // NextID —— 原子发号（对照 Zadig mongodb/counter.go 的 GetNextSeq）

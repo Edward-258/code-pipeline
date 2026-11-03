@@ -3,7 +3,7 @@ package repo
 import (
 	"testing"
 
-	"pipeline/config"
+	"pipeline/pkg/config"
 )
 
 // TestNextID —— 发号器验收：连续两次发号必须严格 +1（原子性）

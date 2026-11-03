@@ -10,8 +10,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 
-	"pipeline/config"
-	"pipeline/models"
+	"pipeline/pkg/config"
+	"pipeline/pkg/models"
 )
 
 // K8s 资源名约束：dns-1123（小写字母数字与 '-'，≤63 字符）

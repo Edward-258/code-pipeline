@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"pipeline/models"
+	"pipeline/pkg/models"
 )
 
 // TestGenerateDriverScript —— 驱动脚本代码生成：骨架、banner、失败即停、注册顺序

@@ -11,9 +11,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 
-	"pipeline/config"
-	"pipeline/models"
-	"pipeline/repo"
+	"pipeline/pkg/config"
+	"pipeline/pkg/models"
+	"pipeline/pkg/repo"
 )
 
 const (

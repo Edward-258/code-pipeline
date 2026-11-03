@@ -3,7 +3,7 @@ package engine
 import (
 	"testing"
 
-	"pipeline/models"
+	"pipeline/pkg/models"
 )
 
 // TestDeclareDead —— M3.5 宣判真值表：

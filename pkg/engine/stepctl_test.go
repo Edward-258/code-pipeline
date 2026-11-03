@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"pipeline/models"
+	"pipeline/pkg/models"
 )
 
 // TestGitCtlPreRun —— git 片段渲染：token 注入、目录推断、默认分支

@@ -10,9 +10,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"pipeline/engine"
-	"pipeline/models"
-	"pipeline/repo"
+	"pipeline/pkg/engine"
+	"pipeline/pkg/models"
+	"pipeline/pkg/repo"
 )
 
 // ---------- Run / Task 查询（对照 Zadig workflow controller 的 RunWorkflowTask） ----------

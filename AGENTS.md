@@ -43,7 +43,7 @@
 - [ ] M5 真构建闭环：docker_build 密封构建（runner/docker.sock/StepCtl 已就绪；卡在节点 daemon.json 放行 `<nodeIP>:30500` 或产物转 ACR 二选一，见 §8）
 - [ ] M6 半吊子前端（单 HTML + fetch 轮询，不上框架；三级树+TestResult+分步日志数据源已就绪）
 
-已有代码结构：`config/` `models/` `repo/` `api/`(CRUD+run/task+分步日志) `engine/`(k8s.go 双模式 client / job.go Job 构建 / run.go 执行器 / driver.go 脚本生成 / stepctl.go+jobctl.go 注册表 / logs.go banner 解析) `docker/`(引擎+pipeline-runner) `deploy/chart/mini-pipeline/`(helm chart) `deploy/build-push.sh`(引擎镜像) `deploy/build-runner.sh`(runner 镜像) `deploy/test-cicd.sh`(验收)。
+已有代码结构（2026-11-04 起业务包收进 `pkg/`，模块名 `pipeline` 不变，import 路径带 `pkg/` 前缀）：`pkg/config/` `pkg/models/` `pkg/repo/` `pkg/api/`(CRUD+run/task+分步日志) `pkg/engine/`(k8s.go 双模式 client / job.go Job 构建 / run.go 执行器 / driver.go 脚本生成 / stepctl.go+jobctl.go 注册表 / logs.go banner 解析) `main.go`(根，仅装配) `docker/`(引擎+pipeline-runner) `deploy/chart/mini-pipeline/`(helm chart) `deploy/build-push.sh`(引擎镜像) `deploy/build-runner.sh`(runner 镜像) `deploy/test-cicd.sh`(验收)。
 
 ## 3. 环境速查（全部实测可用）
 
@@ -110,7 +110,7 @@ db = db.getSiblingDB("pipeline")
 printjson(db.getCollectionNames())
 EOF
 
-go test ./repo/ -v -run TestNextID   # 需先 port-forward mongo
+go test ./pkg/repo/ -v -run TestNextID   # 需先 port-forward mongo
 ```
 
 ## 6. 写代码时遵守的设计原则（从 Zadig 实读得出）

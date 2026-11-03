@@ -5,9 +5,9 @@ import (
 	"log"
 	"time"
 
-	"pipeline/config"
-	"pipeline/models"
-	"pipeline/repo"
+	"pipeline/pkg/config"
+	"pipeline/pkg/models"
+	"pipeline/pkg/repo"
 )
 
 // Recover —— M3.5 启动宣判（对照 Zadig queue.go:110 InitQueue："如果 Queue 重新初始化,

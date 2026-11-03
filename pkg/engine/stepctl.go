@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"pipeline/models"
+	"pipeline/pkg/models"
 )
 
 // StepCtl —— aslan 侧步骤控制器的极简注册表（对照 stepcontroller/step.go:29 的 17 种，

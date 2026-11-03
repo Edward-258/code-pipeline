@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"pipeline/models"
+	"pipeline/pkg/models"
 )
 
 // GenerateDriverScript —— 把步骤列表编译成一段 POSIX sh 驱动脚本：我们的 jobexecutor

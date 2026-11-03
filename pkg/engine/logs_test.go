@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"pipeline/models"
+	"pipeline/pkg/models"
 )
 
 var now = time.Unix(1700000000, 0)

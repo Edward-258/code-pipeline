@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"pipeline/models"
+	"pipeline/pkg/models"
 )
 
 // TestDriverRoundtrip —— 端到端自洽：生成的脚本真的在 POSIX sh（Ubuntu 的 /bin/sh=dash）

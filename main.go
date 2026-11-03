@@ -3,10 +3,10 @@ package main
 import (
 	"log"
 
-	"pipeline/api"
-	"pipeline/config"
-	"pipeline/engine"
-	"pipeline/repo"
+	"pipeline/pkg/api"
+	"pipeline/pkg/config"
+	"pipeline/pkg/engine"
+	"pipeline/pkg/repo"
 )
 
 func main() {

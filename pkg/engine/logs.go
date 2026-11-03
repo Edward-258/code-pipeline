@@ -11,8 +11,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes"
 
-	"pipeline/config"
-	"pipeline/models"
+	"pipeline/pkg/config"
+	"pipeline/pkg/models"
 )
 
 // 日志流 = 状态信道（见 driver.go 的 banner 协议）。这里全是纯函数（podLog 除外），

@@ -3,7 +3,7 @@ package api
 import (
 	"testing"
 
-	"pipeline/models"
+	"pipeline/pkg/models"
 )
 
 // TestBuildTaskSteps —— 图纸 → 运行时 的步骤翻译（新旧两种图纸同源）

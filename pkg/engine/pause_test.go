@@ -3,7 +3,7 @@ package engine
 import (
 	"testing"
 
-	"pipeline/models"
+	"pipeline/pkg/models"
 )
 
 // TestStageGated —— M3 闸门判断的真值表（对照 Zadig waitForManualExec 的三个前置）

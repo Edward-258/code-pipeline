@@ -5,8 +5,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"pipeline/models"
-	"pipeline/repo"
+	"pipeline/pkg/models"
+	"pipeline/pkg/repo"
 )
 
 // ---------- Workflow CRUD（对照 Zadig handler/workflow_v4.go，砍掉鉴权/参数/通知） ----------

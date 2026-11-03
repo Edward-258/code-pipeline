@@ -8,7 +8,7 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 
-	"pipeline/models"
+	"pipeline/pkg/models"
 )
 
 var ErrNotFound = errors.New("document not found")
