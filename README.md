@@ -14,7 +14,7 @@ engine/            执行器（Run 主循环 / driver 脚本生成 / StepCtl+Job
 docker/            引擎镜像 + pipeline-runner 镜像（alpine+git+docker-cli 瘦身）
 deploy/
   chart/mini-pipeline/   helm chart（tags.{engine,mongo,registry} 组件开关，对照 Zadig chart 模式）
-  build-push.sh           引擎镜像构建分发一条龙（打包→scp→节点 build→push ACR）
+  build-push.sh           引擎镜像本机构建直推 ACR（docker build + push）
   build-runner.sh         pipeline-runner 构建推 ACR（低频，runner 变更时跑）
   test-cicd.sh            核心 CI/CD 验收（幕0 兼容 / 幕2 junit 门禁 / 幕3 失败路径 / 幕4 git+ACR 链路）
 ```
@@ -77,18 +77,18 @@ wf.json 示例：
 ## 镜像分发链路
 
 引擎镜像（2026-11-03 起）：**阿里云 ACR 个人版独立实例**（cn-heyuan，crpi- 前缀域名）
-push: 节点/本地 docker push crpi-28fqgwft325ylccc.cn-heyuan.personal.cr.aliyuncs.com/codepipeline-learning/mini-pipeline:<tag>（公网端点）
+push: 本机 docker push crpi-28fqgwft325ylccc.cn-heyuan.personal.cr.aliyuncs.com/codepipeline-learning/mini-pipeline:<tag>（公网端点；deploy/build-push.sh 一条龙，2026-11-04 起本机直构直推，不再 ssh worker）
       ⚠️ build 必须 --provenance=false：ACR 拒收 BuildKit 默认的 provenance/attestation 清单（unknown manifest class for oci.empty.v1+json）
       ⚠️ 老共享域名 registry.cn-heyuan.aliyuncs.com 不属于本实例（Forbidden Host），别用
 pull: crpi-28fqgwft325ylccc-vpc.cn-heyuan.personal.cr.aliyuncs.com/…（VPC 端点，集群内网免公网流量）
       凭证 = chart 内 imagePullSecret acr-credential（节点 registries.yaml 不动、不重启 k3s）
 
 pipeline-runner 镜像（2026-11-04 起）：同实例同 namespace（codepipeline-learning/pipeline-runner）
-push: deploy/build-runner.sh <tag>（公网端点，push 自动建仓）
+push: deploy/build-runner.sh <tag>（本机直构直推公网端点，push 自动建仓）
 pull: chart values runner.image（引擎创建的 Job Pod 用 VPC 端点拉取；⚠️ Job Pod 自己挂
       acr-credential——引擎 Deployment 的 imagePullSecrets 不会继承给运行时创建的 Job）
 
-流水线产物镜像（docker_build 步骤，去留待定）：暂走集群内 registry:2，与引擎分发互不干扰
+流水线产物镜像（docker_build 步骤，2026-11-04 定）：走集群内 registry:2，与引擎分发互不干扰
 push: 节点上 docker push 127.0.0.1:30500/mini-pipeline:<tag>（NodePort 仅内网，安全组不放公网）
 pull: 三节点 /etc/rancher/k3s/registries.yaml 把 "localhost:5000" mirror 到各节点内网 IP:30500
       → 镜像名两边一致（registry 存储剥离 host 前缀），kubelet 无感知

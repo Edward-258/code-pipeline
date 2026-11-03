@@ -1,6 +1,6 @@
 # AGENTS.md — mini-pipeline 项目上下文（给下一个会话的你）
 
-> **工作台（2026-11-02 起迁移）**：WSL2 Ubuntu-24.04，本仓库位于 `/home/edward/projects/mini-pipeline`（git 历史完整迁入，`core.autocrlf=input`）。工具链：go 1.26.4（/usr/local/go，GOPROXY=goproxy.cn）、helm v4.0.0、kubectl（context `k3s-heyuan` 已配通）、jq、gcc、git（身份 Edward-258）。路径映射：Zadig 模板 → `/mnt/e/code pipeline学习模板(基于zadig项目)/zadig`；SSH key → `~/.ssh/heyuan81.pem`（/mnt/e 原件 drvfs 权限 ssh 不认，已拷贝 + chmod 600）；Windows 临时目录 → `/mnt/c/Temp/opencode`。`deploy/build-push.sh` 是 WSL 版构建脚本（tar/scp/ssh 原生三件套，源码取自本仓库；Windows 时代的 build-push.ps1 已删）。Windows 旧副本 `E:\code pipeline的小范围复现` 仅作存档，勿双向编辑。
+> **工作台（2026-11-02 起迁移）**：WSL2 Ubuntu-24.04，本仓库位于 `/home/edward/projects/mini-pipeline`（git 历史完整迁入，`core.autocrlf=input`）。工具链：go 1.26.4（/usr/local/go，GOPROXY=goproxy.cn）、helm v4.0.0、kubectl（context `k3s-heyuan` 已配通）、jq、gcc、git（身份 Edward-258）、**Docker Desktop 29.x（2026-11-04 起，本机直构直推镜像）**。路径映射：Zadig 模板 → `/mnt/e/code pipeline学习模板(基于zadig项目)/zadig`；SSH key → `~/.ssh/heyuan81.pem`（/mnt/e 原件 drvfs 权限 ssh 不认，已拷贝 + chmod 600）；Windows 临时目录 → `/mnt/c/Temp/opencode`。`deploy/build-push.sh`/`build-runner.sh` 是本机构建脚本（docker build + push ACR，不再 ssh worker）。Windows 旧副本 `E:\code pipeline的小范围复现` 仅作存档，勿双向编辑。
 
 > **远端（2026-11-03 关联）**：`origin` = https://github.com/Edward-258/code-pipeline.git（**私有**，首推 master；仓库含明文密码，永不可转公开）。WSL 无 GitHub 凭证，推送走 Windows GCM 桥——credential.helper 已写进本仓库 local config（指向 `/mnt/c/Program Files/Git/mingw64/bin/git-credential-manager.exe`），裸 `git push` 即可，弹窗点一下就行。
 
@@ -67,7 +67,7 @@
 1. **引擎跑在集群内**（2026-11-01 拍板，推翻更早的"本机跑"方案）：InClusterConfig + SA `pipeline-engine`（Role 仅 jobs/pods 权限）；代码保留 kubeconfig fallback 供本机调试（`K8S_CONTEXT=k3s-heyuan`）。
 2. **部署形态对齐 Zadig = helm chart**：`deploy/chart/mini-pipeline`，`tags.{engine,mongo,registry}` 组件开关 + `connections.mongo.uri` 参数化（对照 Zadig chart 的 tags.mongodb / connections 模式）。⚠️ Helm v4 升级默认**复用**上次 --set 值，覆盖要显式 `--set`。
 3. **registry:2 提前建**（原 M5 组件）：镜像名统一 `localhost:5000/mini-pipeline:<tag>`，push 侧节点 docker 推 `127.0.0.1:30500`，pull 侧三节点 registries.yaml 把 `localhost:5000` mirror 到三个节点内网 IP:30500（不能只配 127.0.0.1——worker-2 回环 NodePort 不通，见 §9）。registry 存储会剥离 host 前缀，两边镜像名天然一致。（2026-11-02 起资源归 ArgoCD 管，见决断 #11；两条链路本身不变）
-4. **镜像构建在节点上做**：`deploy/build-push.sh <tag>` 一条命令 = WSL 打包源码 → scp worker-1 → docker build（多阶段 golang:1.26-alpine，GOPROXY=goproxy.cn）→ push ACR（2026-11-03 起目标从内置 registry 改为 ACR，见 #12 和 §9.12；本机 Docker Desktop 走 SSH 隧道直推的方案实测可行但需常驻隧道，弃用）。
+4. **镜像在本机构建直推 ACR**（2026-11-04 起本机 Docker Desktop 可用后改版）：`deploy/build-push.sh <tag>` = 本机 `docker build`（多阶段 golang:1.26-alpine，GOPROXY=goproxy.cn，.dockerignore 瘦上下文）→ push ACR 公网端点（`--provenance=false` 硬要求，见 §9.9）。历史：2026-11-03~04 曾走"scp worker-1 远程构建"链路（本机无 docker），ssh 僵尸会话坑频发，本机 engine 就位后退役；worker 上构建一去不复返。
 5. **镜像构建走路线①**（M5 生效）：fat image（docker CLI）+ 挂宿主 `/var/run/docker.sock`；k3s 是 containerd，两个镜像仓库互不相认，registry:2 是必选项。
 6. 状态获取用**轮询**（每 2s 查 K8s Job），不上 watch。
 7. runner 不主动回调：**Pod 退出码 = job 结果**，日志用 API 拉。
@@ -80,8 +80,8 @@
 ## 5. 常用命令
 
 ```bash
-# ===== 部署循环（改代码后的标准姿势） =====
-# 1) 构建镜像进 ACR（在 worker-1 上 build+push；--provenance=false 是 ACR 硬要求，脚本已内置）
+# ===== 部署循环（改代码后的标准姿势；本机 Docker Desktop 直构直推） =====
+# 1) 构建镜像进 ACR（--provenance=false 是 ACR 硬要求，脚本已内置；首次需 docker login 一次）
 deploy/build-push.sh 0.2.2
 # 2) 升级 release（注意 helm v4 会复用上次 --set，覆盖要显式）
 helm upgrade mini-pipeline deploy/chart/mini-pipeline --kube-context k3s-heyuan -n pipeline --set image.tag=0.2.2 --set tags.engine=true --wait
@@ -149,7 +149,7 @@ go test ./repo/ -v -run TestNextID   # 需先 port-forward mongo
 
 未竟事项（按优先级）：
 
-1. **幕1 密封构建**（docker_build → registry:2 → 临时 Job 拉起产物闭环）：被节点 daemon.json 放行 `<nodeIP>:30500` 拦住（权限分类器定性 Remote Shell Writes / TLS-Auth Weaken，补丁脚本 `deploy/fix-daemon-insecure.sh` 留档仓内待批）。**二选一**：批补丁跑通原链路，或产物也转 ACR（runner 已在 ACR，同链路则补丁作废；代价 = docker_build 步骤需 docker login 凭证注入 + kubelet 拉产物也要 imagePullSecret）。拍板前 test-cicd.sh 幕1 默认跳过（`MP_ACT1=1` 启用）。
+1. **幕1 密封构建**（docker_build → registry:2 → 临时 Job 拉起产物闭环）：**产物已定 registry:2（2026-11-04 拍板）**。剩余唯一一步 = 两台 worker 的 daemon.json 放行 `<nodeIP>:30500`（insecure-registries）——权限分类器两度拦截（Remote Shell Writes / TLS-Auth Weaken），补丁脚本 `deploy/fix-daemon-insecure.sh` 留档仓内（幂等 jq patch + 备份），**由用户亲自执行或明确授权后执行**。跑通后 `MP_ACT1=1 bash deploy/test-cicd.sh` 收官。
 2. **自举彩蛋**：git 步骤克隆私有 code-pipeline 仓库构建引擎自身镜像（需用户提供 GitHub PAT；公开仓库克隆已验通——幕4 octocat/Hello-World）。
 3. **M4 变量传递**：global_context（JSON marshal → `{{.key}}` 替换 → unmarshal，Zadig 粗暴方案）+ 单 job 重试 + outputs（StepCtl 挂点已留）。
 4. **M6 半吊子前端**：单 HTML + fetch 轮询；数据源已就绪（task 树带 steps/TestResult + 分步日志端点）。

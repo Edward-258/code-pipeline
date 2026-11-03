@@ -1,0 +1,5 @@
+# 镜像构建上下文瘦身（Dockerfile 只 COPY go.mod/go.sum + 源码目录）
+.git
+deploy
+.claude
+*.md
