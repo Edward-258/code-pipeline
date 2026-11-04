@@ -18,14 +18,17 @@ import (
 // K8s 资源名约束：dns-1123（小写字母数字与 '-'，≤63 字符）
 var jobNameSanitizer = regexp.MustCompile(`[^a-z0-9-]+`)
 
-// jobName —— 命名规则 mp-<taskID>-<stage>-<job>（对照 Zadig 的 job-<taskID>-… 前缀保唯一）
-func jobName(taskID int64, stage, job string) string {
-	name := fmt.Sprintf("mp-%d-%s-%s", taskID, stage, job)
+// jobName —— 命名规则 mp-<wf>-<taskID>-<stage>-<job>（对照 Zadig 的 job-<taskID>-… 前缀保唯一）。
+// ⚠️ workflow 名必须进名字（T1.6 活体验收抓的老雷）：只有 taskID 时，两个不同 workflow
+// 的同号任务 + 同名 stage/job = 同一个 K8s Job 名，幂等 Delete 会删掉别人家的 Job、
+// Clean 会掀掉别人正在轮询的执行物。wf 名在任务档案里唯一（图纸名即主键），进名字后全局唯一。
+func jobName(wfName string, taskID int64, stage, job string) string {
+	name := fmt.Sprintf("mp-%s-%d-%s-%s", wfName, taskID, stage, job)
 	name = strings.ToLower(name)
 	name = jobNameSanitizer.ReplaceAllString(name, "-")
 	name = strings.Trim(name, "-")
 	if len(name) > 63 {
-		name = name[:63] // 截断只会发生在超长 stage/job 名时，前缀 mp-<taskID> 保证唯一性
+		name = name[:63] // 截断只发生在超长名时；前缀 mp-<wf>-<taskID> 唯一性在此尺度下够用
 	}
 	return name
 }

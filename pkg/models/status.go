@@ -6,6 +6,7 @@ type Status string
 
 const (
 	StatusCreated   Status = "created"   // 任务已创建未开始
+	StatusQueued    Status = "queued"    // T1.6：已入队待派发（队列态=档案态，无第二真相源）
 	StatusRunning   Status = "running"   // 执行中
 	StatusPassed    Status = "passed"    // 成功
 	StatusFailed    Status = "failed"    // 失败
@@ -48,8 +49,8 @@ func statusWeight(s Status) int {
 		return 4
 	case StatusPassed:
 		return 3
-	case StatusCreated:
-		return 2
+	case StatusCreated, StatusQueued:
+		return 2 // 还没跑起来的都不改变聚合结果
 	case StatusSkipped:
 		return 1
 	}

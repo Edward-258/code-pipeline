@@ -42,9 +42,13 @@ func RunWorkflow(c *gin.Context) {
 		return
 	}
 
-	// 先响应后启动：JSON 序列化完成后 goroutine 才会改 t，避免数据竞争
+	// T1.6：入队（status=queued 先落库），执行交给派发器——API 永远不直接 go Run。
+	// 先落库后响应：调用方看到的已经是 queued 态。
+	if err := engine.Enqueue(t); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
 	c.JSON(http.StatusOK, t)
-	go engine.Run(t)
 }
 
 // GetTask GET /api/tasks/:name/:id —— 整棵任务树
@@ -168,8 +172,13 @@ func ReleaseStage(c *gin.Context) {
 		return
 	}
 
+	// T1.6：release 续跑走正常入队（pause → queued → 派发器 → running）。
+	// pause 不占 running 名额的另一半：续跑也要重新排队，不搞插队。
+	if err := engine.Enqueue(t); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
 	c.JSON(http.StatusOK, t)
-	go engine.Run(t) // 续跑：passed/skipped 的 stage 已被跳过，从暂停的 stage 接着走
 }
 
 // ---------- 步骤化日志（CI/CD）：任务在跑透传 Pod 日志尾部，已结束回档案分步日志 ----------
