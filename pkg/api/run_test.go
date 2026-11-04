@@ -3,6 +3,7 @@ package api
 import (
 	"testing"
 
+	"pipeline/pkg/engine"
 	"pipeline/pkg/models"
 )
 
@@ -27,7 +28,7 @@ func TestBuildTaskSteps(t *testing.T) {
 			},
 		}},
 	}
-	tk := buildTask(wf, 1)
+	tk := engine.BuildTask(wf, 1)
 
 	legacy := tk.Stages[0].Jobs[0]
 	if len(legacy.Steps) != 1 || legacy.Steps[0].Name != "main" || legacy.Steps[0].Type != models.StepShell || legacy.Steps[0].Status != models.StatusCreated {
