@@ -92,16 +92,19 @@ type StepSpec struct {
 	Image      string  `bson:"image,omitempty"      json:"image,omitempty"`       // docker_build：产物镜像名
 	Tag        string  `bson:"tag,omitempty"        json:"tag,omitempty"`         // docker_build：默认 latest
 	Dockerfile string  `bson:"dockerfile,omitempty" json:"dockerfile,omitempty"`  // docker_build：默认 ./Dockerfile
-	ReportGlob string  `bson:"report_glob,omitempty" json:"report_glob,omitempty"` // junit_report：XML 通配
-	PassRate   float64 `bson:"pass_rate,omitempty"  json:"pass_rate,omitempty"`   // junit_report：门禁 (0,1]，默认 1.0=100%
+	ReportGlob   string  `bson:"report_glob,omitempty"   json:"report_glob,omitempty"`   // junit_report：XML 通配
+	PassRate     float64 `bson:"pass_rate,omitempty"     json:"pass_rate,omitempty"`     // junit_report：门禁 (0,1]，默认 1.0=100%
+	ArtifactGlob string  `bson:"artifact_glob,omitempty" json:"artifact_glob,omitempty"` // archive：产物路径 glob（相对工作区）
+	ArtifactName string  `bson:"artifact_name,omitempty" json:"artifact_name,omitempty"` // archive：产物名（默认 <step>.tgz；下载键 = <wf>-<taskID>-<step>）
 }
 
-// 步骤类型（对照 Zadig stepcontroller 的 17 种，学习版首发 4 种）
+// 步骤类型（对照 Zadig stepcontroller 的 17 种，学习版首发 5 种）
 const (
 	StepShell       = "shell"        // 任意 shell 片段
 	StepGit         = "git"          // git clone --depth 1
 	StepDockerBuild = "docker_build" // 宿主 docker.sock 构建 + 推 registry:2
 	StepJunitReport = "junit_report" // 收集 junit XML + 通过率门禁（门禁判定在引擎侧 AfterRun）
+	StepArchive     = "archive"      // T2.4：打包产物 → 上传引擎 GridFS → API 下载（Zadig 三种归档步骤合并为一种）
 )
 
 // EffectiveSteps —— 引擎只认 steps：新图纸用 spec.Steps；旧图纸只有 Scripts
