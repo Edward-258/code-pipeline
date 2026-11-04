@@ -181,6 +181,121 @@ func ReleaseStage(c *gin.Context) {
 	c.JSON(http.StatusOK, t)
 }
 
+// ---------- T1.7/T1.8：克隆与整任务重试（对照 Zadig clone/retry 端点） ----------
+
+// CloneTask POST /api/tasks/:name/:id/clone —— 一键原样重跑（对照 Zadig GET .../clone/...）。
+// 灵魂复用：WorkflowArgs 是【当时的完整图纸快照】，buildTask 等价构造新 task（新号），
+// 全新 GlobalContext（不继承旧任务收割的 outputs——它们由新一轮运行重新产生）、
+// 全新 created 树。克隆任何状态的任务都合法（历史即模板）。
+func CloneTask(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "task id must be a number"})
+		return
+	}
+	t, err := repo.FindTask(c.Param("name"), id)
+	if err == repo.ErrNotFound {
+		c.JSON(http.StatusNotFound, gin.H{"error": "task not found"})
+		return
+	}
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	if t.WorkflowArgs == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "task has no workflow snapshot (legacy archive?)"})
+		return
+	}
+
+	taskID, err := repo.NextID("workflow_task:" + t.WorkflowName)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	nt := buildTask(t.WorkflowArgs, taskID) // 快照再快照：两层快照互不共享指针，各是各的档案
+	nt.Creator = "clone:" + t.ID            // 出身标记：从哪个任务克隆来的
+	if err := repo.CreateTask(nt); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	if err := engine.Enqueue(nt); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, nt)
+}
+
+// RetryTask POST /api/tasks/:name/:id/retry —— 从失败处续跑（对照 Zadig POST .../retry/...）。
+// 仅终态任务可用（running/queued/pause 有看护人或排队语义，409）。
+// 树内手术：failed/cancelled/skipped 的 stage/job 重置 created（skipped 多为刹车残留，
+// 重试 = 补跑它们），passed 原样保留不重跑（runStage 凭 jt.Status==passed 跳过）；
+// 重置 job 的 Retry 计数归零（新一轮的重试预算）、步骤树回 created。
+// GlobalContext 保留：上游 passed job 的 outputs 继续可用，失败 job 重跑后重新收割。
+func RetryTask(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "task id must be a number"})
+		return
+	}
+	t, err := repo.FindTask(c.Param("name"), id)
+	if err == repo.ErrNotFound {
+		c.JSON(http.StatusNotFound, gin.H{"error": "task not found"})
+		return
+	}
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	if !models.StatusFinished(t.Status) {
+		c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("task is %s, only finished tasks can be retried", t.Status)})
+		return
+	}
+
+	resetForRetryRun(t)
+	if err := repo.UpdateTask(t); err != nil { // 重置后的树先落库（入队前档案先就位）
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	if err := engine.Enqueue(t); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, t)
+}
+
+// resetForRetryRun —— 整任务重试的树内手术（纯内存，可单测）。
+// 与单 job 重试（resetForRetry）的分工：那是 job 内一步重来的现场清理，这是任务级
+// 选择性复活——passed 子树不动，其余全部拉回 created。
+func resetForRetryRun(t *models.WorkflowTask) {
+	for _, st := range t.Stages {
+		if st.Status == models.StatusPassed {
+			continue // passed stage 整棵保留（对照 runStages 的跳过逻辑）
+		}
+		st.Status = models.StatusCreated
+		st.Error = ""
+		st.EndTime = 0
+		// StartTime 保留：它是"第一次触到这里"的历史（Run 的 StartTime 首标语义同源）
+		for _, jt := range st.Jobs {
+			if jt.Status == models.StatusPassed {
+				continue // passed job 不重跑（runStage 的跳过逻辑）
+			}
+			jt.Status = models.StatusCreated
+			jt.Error = ""
+			jt.Retry = 0 // 重试预算重置
+			for _, sp := range jt.Steps {
+				sp.Status = models.StatusCreated
+				sp.StartTime, sp.EndTime = 0, 0
+				sp.Error = ""
+				sp.Log = ""
+				sp.TestResult = nil
+			}
+		}
+	}
+	t.Status = models.StatusCreated // 入队时 Enqueue 会翻 queued
+	t.EndTime = 0
+	t.Error = ""
+}
+
 // ---------- 步骤化日志（CI/CD）：任务在跑透传 Pod 日志尾部，已结束回档案分步日志 ----------
 
 // GetTaskLog GET /api/tasks/:name/:id/log?stage=S&job=J[&step=X]

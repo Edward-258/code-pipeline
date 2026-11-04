@@ -147,6 +147,9 @@ func runStage(tc *taskCtx, t *models.WorkflowTask, st *models.StageTask) {
 	if st.Parallel {
 		var wg sync.WaitGroup
 		for _, jt := range st.Jobs {
+			if jt.Status == models.StatusPassed {
+				continue // T1.8 整任务重试：passed job 原样保留不重跑（retried stage 里混着 passed 子树）
+			}
 			wg.Add(1)
 			go func(jt *models.JobTask) {
 				defer wg.Done()
@@ -158,6 +161,9 @@ func runStage(tc *taskCtx, t *models.WorkflowTask, st *models.StageTask) {
 	}
 
 	for _, jt := range st.Jobs {
+		if jt.Status == models.StatusPassed {
+			continue // 同上：重试场景下 passed job 不重跑
+		}
 		if stageBraked(st) {
 			jt.Status = models.StatusSkipped // 不再起新的：未启动的直接置 skipped
 			tc.ack(t)
