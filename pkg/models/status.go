@@ -23,6 +23,15 @@ func StatusStopped(s Status) bool {
 	return false
 }
 
+// StatusFinished —— 终态判定：不会再变的状态（取消/重试端点的守卫、CancelTree 的跳过集）
+func StatusFinished(s Status) bool {
+	switch s {
+	case StatusPassed, StatusFailed, StatusCancelled, StatusSkipped:
+		return true
+	}
+	return false
+}
+
 // statusWeight —— 最差者胜的权重（对照 Zadig consts.go:106-125 的偏序，学习版 7 态映射）
 // 值越大越"差"：聚合取权重最大者，一个 failed 就足以把 stage/task 拖成 failed。
 // running 排在 passed 之前：还有 job 在跑就不许宣布成功；
