@@ -19,7 +19,7 @@ func TestDriverRoundtrip(t *testing.T) {
 	}
 
 	steps := []*models.StepSpec{
-		{Name: "first", Type: models.StepShell, Script: "echo working"},
+		{Name: "first", Type: models.StepShell, Script: "echo working\nmp_output \"BUILD_ID=42\"\necho '===MP=== OUTPUT RAW=ok'"}, // mp_output + 裸 echo 双路产出（T1.2）
 		{Name: "boom", Type: models.StepShell, Script: "echo about-to-fail >&2; exit 7"}, // stderr 混流不许破坏协议
 		{Name: "never", Type: models.StepShell, Script: "echo SHOULD-NOT-RUN"},
 	}
@@ -52,6 +52,11 @@ func TestDriverRoundtrip(t *testing.T) {
 	jt := jobWithSteps("first", "boom", "never")
 	applyStepBanners(jt, string(out), now)
 	sliceStepLogs(jt, string(out))
+
+	// T1.2：OUTPUT banner 收割——mp_output 助手与裸 echo 双路都要进 jt.Outputs
+	if jt.Outputs["BUILD_ID"] != "42" || jt.Outputs["RAW"] != "ok" {
+		t.Errorf("outputs not harvested: %v", jt.Outputs)
+	}
 
 	if jt.Steps[0].Status != models.StatusPassed {
 		t.Errorf("first: %s (log=%q)", jt.Steps[0].Status, jt.Steps[0].Log)

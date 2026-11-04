@@ -14,6 +14,7 @@ import (
 //
 //	===MP=== STEP-START <name>
 //	===MP=== STEP-END <name> passed|failed exit=<n>
+//	===MP=== OUTPUT <k>=<v>          ← 步骤脚本 mp_output "<k>=<v>" 产出（M4 变量传递）
 //
 // 引擎每 2s 刮 Pod 日志反解 banner 维护步骤状态（engine/logs.go）——日志流就是状态信道，
 // 零新依赖零 RBAC。失败即停：对照 jobexecutor 的 hasFailed && !OnFailure（剩余步骤不跑，
@@ -53,6 +54,7 @@ func GenerateDriverScript(steps []*models.StepSpec) (string, error) {
 // 正常路径先把 MP_CUR 清空再 exit，trap 看到空就哑火，不会双打。
 const driverPrelude = `exec 2>&1
 say() { printf '\n===MP=== %s\n' "$*"; }
+mp_output() { say "OUTPUT $1"; }
 MP_CUR=""
 mp_run() {
   say "STEP-START $1"
