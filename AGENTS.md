@@ -40,6 +40,14 @@
 - T1.9 错误策略+超时：spec.TimeoutMinutes（默认10）+ spec.ErrorPolicy（stop/retry/ignore，图纸白名单校验）；**控制/上报分离**（策略只改控制流，失败照红）；task 尾态 WorstOf 如实收口
 - **拆 M1 老雷**（T1.6 活体抓的）：jobName 不含 workflow 名 → 跨 wf 同号任务 K8s Job 名碰撞互相践踏（队列时代必炸）；现名 `mp-<wf>-<taskID>-<stage>-<job>`，教训入档 §9.14
 
+**阶段二"CD 闭环"已收官（2026-11-05 深夜，PR #10–#14 线性堆叠 GitHub 侧合并，master `fd867f9`；test-mvp1 35/35 + test-mvp2 19/19 双绿；镜像 0.6.x 待人工拍板后构建）**：
+- T2.1 env 集合：name/namespace/desc，deploy job 的靶标映射（POST/GET/DELETE /api/envs，409/400/404 全路径）
+- T2.2 deploy job ⭐CD 本体：JobTypeDeploy + DeploySpec（env/dep名/容器名/镜像/wait_rollout 默认 true）；**不变量3：不起 K8s Job 不挂 sock，引擎 client-go StrategicMergePatch 直 patch**（只动目标容器）；rollout 轮询 = observedGeneration 追上 + updated 齐 + unavailable=0；wait_rollout=false = 自举防绞杀；DeploySpec 进变量渲染管线（image 可引上游 output）
+- T2.3 chart Role 扩展（role.yaml 已改，**apply/helm upgrade 待人工**）：apps 组 deployments/statefulsets/daemonsets patch/update
+- T2.4 archive step：tar czf → curl 上传引擎 GridFS（bucket artifacts，键 `<wf>-<taskID>-<step>` 重跑覆盖，32MB 上限 413）→ GET 流式下载；Pod env 注入 MP_ENGINE_URL/MP_TASK_WF/MP_TASK_ID；⚠️ Pod→引擎上传需引擎在集群内跑（本机引擎 Pod 打不到宿主——API 层回环已绿，Pod 侧活体等 0.6.x 镜像）
+- T2.5 自举图纸：deploy/bootstrap-workflow.json（toolchain→checkout→go test 门禁→docker_build 推 ACR tag=bootstrap）+ deploy job 打自身（wait_rollout=false）；bootstrap-ensure.sh 落库脚本（env self = pipeline ns）；**执行【需人工】：worker 节点 daemon docker login ACR + Role apply + POST run**
+- fake clientset 单测手法入档：reactor 模拟 rollout 控制器追上（fake 无控制器行为）；pollInterval/rolloutWaitTimeout 做成 var 供测试缩短节拍
+
 **M0 + M1 + M2 + M3 + M3.5 + 核心 CI/CD + M5 密封构建已完成**。M1 = run 端点 → counter 发号 → 快照落库 → K8s Job 创建/轮询/清理 → ack 全量写；引擎已镜像化部署进 k3s，经 ingress 对外。M2 = runStages 状态机（stage 内并行/串行 + 最差者胜聚合 + 失败刹车）。M3 = durable 暂停（闸门落库+goroutine 退出 → kill 引擎 Pod 档案仍在 → release 续跑）。M3.5 = 启动宣判（running 孤儿档案 cancelled + 泄漏 Job 清理；pause 稳态不碰——分叉自 Zadig，它连 waiting-approve 一起取消）。核心 CI/CD = 步骤化三级树 + bash driver + junit 门禁 + 分步日志（2026-11-04）。**M5 密封构建闭环收官（2026-11-04 晚，镜像 0.4.6，33 断言全绿）**：docker_build → registry:2 → 临时 Job 拉起产物全链路打通；收官路上修了三个真 bug（$MP_NODE_REGISTRY 单引号不展开 / containerd 双 copier 乱序写日志 / 验收脚本查错档案的化石红灯），详见 §9.10 修订与 §9.12。基础设施三连升：registry:2 移交 ArgoCD（#11）+ 引擎镜像走 ACR（#12）+ runner 镜像走 ACR（#12 扩展，2026-11-04）。
 
 里程碑总览（详细验收标准见桌面 `mini-zadig-计划.md`）：
