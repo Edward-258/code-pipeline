@@ -45,6 +45,7 @@ type FreestyleSpec struct {
 	Image   string      `bson:"image,omitempty"   json:"image,omitempty"`   // 空 = 按步骤需要选默认（见 engine.buildJob）
 	Scripts []string    `bson:"scripts,omitempty" json:"scripts,omitempty"` // 旧图纸兼容：翻译成隐式 step "main"
 	Steps   []*StepSpec `bson:"steps,omitempty"   json:"steps,omitempty"`  // ⭐ 步骤列表（CI/CD 核心）
+	Retry   int         `bson:"retry,omitempty"   json:"retry,omitempty"`   // 单 job 重试次数（默认 0=不重试，M4）
 }
 
 // StepSpec —— 步骤规格（图纸层，对照 Zadig 的各 StepModel；字段按 Type 取用）

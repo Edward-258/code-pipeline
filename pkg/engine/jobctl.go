@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"fmt"
+	"log"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -36,7 +37,48 @@ func newJobCtl(jt *models.JobTask) JobCtl {
 	}
 }
 
+// Run —— T1.4 重试包装：单次尝试失败且 spec.Retry 未用完 → 现场重置再来
+// （对照 Zadig JobSpec.Retry 的 job 级重试位；错误策略的 retry 分支 T1.9 接管这里）。
 func (K8sJobCtl) Run(tc *taskCtx, jt *models.JobTask) error {
+	maxRetry := 0
+	if jt.Spec != nil {
+		maxRetry = jt.Spec.Retry
+	}
+	for attempt := 0; ; attempt++ {
+		err := runK8sJobOnce(tc, jt)
+		if err == nil {
+			return nil
+		}
+		if attempt >= maxRetry {
+			return err
+		}
+		// 重试：计数 ack + 清上一轮现场。旧 Job 的清理交给 runK8sJobOnce 开头的幂等 Delete
+		tc.mu.Lock()
+		jt.Retry++
+		resetForRetry(jt)
+		ack(tc.t)
+		tc.mu.Unlock()
+		log.Printf("engine: task %s/%d job %q failed (%v), retry %d/%d", tc.t.WorkflowName, tc.t.TaskID, jt.Name, err, jt.Retry, maxRetry)
+	}
+}
+
+// resetForRetry —— 重试前清空上一轮现场：步骤树回 created、产出与门禁结果作废。
+// 新 Pod 全新开始，banner 重放要求步骤状态可重新驱动（START 只认 created、END 只认
+// running）；旧日志/旧输出不能代表最后一轮，不重置就是化石数据。
+func resetForRetry(jt *models.JobTask) {
+	for _, st := range jt.Steps {
+		st.Status = models.StatusCreated
+		st.StartTime, st.EndTime = 0, 0
+		st.Error = ""
+		st.Log = ""
+		st.TestResult = nil
+	}
+	jt.Outputs = nil
+}
+
+// runK8sJobOnce —— 单次尝试的 K8s 生命周期：创建 → 轮询到终态；期间每拍顺手刮
+// Pod 日志维护步骤状态（live 分界面）。返回 job 级错误（创建失败/退出码/超时）。
+func runK8sJobOnce(tc *taskCtx, jt *models.JobTask) error {
 	// 幂等：残留同名 Job 先清（M4 单 job 重试 / 崩溃恢复扫清脏资源，run.go 的老规矩）
 	_ = tc.client.BatchV1().Jobs(tc.ns).Delete(context.TODO(), jt.K8sJobName, deleteOpts())
 
