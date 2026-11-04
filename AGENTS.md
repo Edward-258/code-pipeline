@@ -54,6 +54,18 @@
 - T3.3 通知：notify 集合 CRUD + finish() 挂 fire-and-forget 通知钩子（1 重试，失败只记日志）；飞书/钉钉双报文 + 双平台加签（两家 HMAC 约定不同，注释钉死）；**不对称文档化**：CancelTree 纯数据取消不发通知（无看护人在场）
 - T3.4 原生审批：ManualExec 扩 approvers/policy/approvals；POST /api/tasks/:name/:id/approve（与 release 同锁同闸门位）；**活体抓真 bug：BuildTask 快照只拷 Enabled，approvers/policy 丢失 → all 静默变 any**（修 engine/task.go，审批记录属于运行不入图纸快照）；老图纸空名单 = 一条审批即过 ≡ release
 
+**阶段四"门面"已收官 + MVP 四阶段全部完成（2026-11-05 凌晨，PR #22–#23，master `2fb3a09`；四套验收门 97 断言全绿：mvp1=35 / mvp2=19 / mvp3=25 / mvp4=18）**：
+- T4.1 任务列表过滤分页：GET /api/tasks/:name?status=&creator=&from=&to=&page=&size= → **envelope {items,total,page,size}**（裸数组形状已废，消费方注意）；repo.ListTasksFiltered（task_id 降序 + size 上限 100 + CountDocuments 总数）
+- T4.2 半吊子前端：deploy/web/index.html（原生 JS + fetch 2s 轮询，五页签：工作流 JSON 编辑（保存=删除重建）/任务过滤分页/任务详情树+分步日志+TestResult+artifact 下载+cancel/retry/clone/approve/release/env/notify/cron 含 fire）；main.go go:embed 注入（⚠️ `//go:embed` + `var x []byte` 必须 `import _ "embed"`——[]byte 形态包名不被引用但 import 不能少）
+- T4.3 顺带修两真问题：**图纸校验白名单漏 archive**（T2.4 加了步骤类型忘了加校验 case → archive 图纸 400）；**busybox/runner 镜像都没有 curl** → archive 上传改 busybox `wget --post-file`（两边通吃）
+
+**【需人工清单】（MVP 代码全就位，以下动作需要用户在场）**：
+1. `helm upgrade` 应用 T2.3 的 chart Role 扩展（apps 组 workload patch）+ 构建推 0.6.x 镜像（§6.5：阶段收官才构建）
+2. Role 生效后：`MP_ROLE_LIVE=1 bash deploy/test-mvp2.sh` 跑 deploy job 活体 patch 断言
+3. worker 节点 daemon 一次性 `docker login` ACR 公网端点 → `bash deploy/bootstrap-ensure.sh` → `POST /api/workflows/bootstrap/run` 点燃自举（wait_rollout=false 已内置防绞杀）
+4. 浏览器走查：本机引擎跑起来开 http://localhost:8080（五页签/过滤翻页/详情树/审批表单/增删）
+5. Pod→引擎 archive 上传活体（0.6.x 镜像进集群后，旧 0.4.6 无 artifact 路由必 404——本机引擎 Pod 打不到宿主，已知边界）
+
 **M0 + M1 + M2 + M3 + M3.5 + 核心 CI/CD + M5 密封构建已完成**。M1 = run 端点 → counter 发号 → 快照落库 → K8s Job 创建/轮询/清理 → ack 全量写；引擎已镜像化部署进 k3s，经 ingress 对外。M2 = runStages 状态机（stage 内并行/串行 + 最差者胜聚合 + 失败刹车）。M3 = durable 暂停（闸门落库+goroutine 退出 → kill 引擎 Pod 档案仍在 → release 续跑）。M3.5 = 启动宣判（running 孤儿档案 cancelled + 泄漏 Job 清理；pause 稳态不碰——分叉自 Zadig，它连 waiting-approve 一起取消）。核心 CI/CD = 步骤化三级树 + bash driver + junit 门禁 + 分步日志（2026-11-04）。**M5 密封构建闭环收官（2026-11-04 晚，镜像 0.4.6，33 断言全绿）**：docker_build → registry:2 → 临时 Job 拉起产物全链路打通；收官路上修了三个真 bug（$MP_NODE_REGISTRY 单引号不展开 / containerd 双 copier 乱序写日志 / 验收脚本查错档案的化石红灯），详见 §9.10 修订与 §9.12。基础设施三连升：registry:2 移交 ArgoCD（#11）+ 引擎镜像走 ACR（#12）+ runner 镜像走 ACR（#12 扩展，2026-11-04）。
 
 里程碑总览（详细验收标准见桌面 `mini-zadig-计划.md`）：
