@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"time"
@@ -49,6 +50,11 @@ func (K8sJobCtl) Run(tc *taskCtx, jt *models.JobTask) error {
 		if err == nil {
 			return nil
 		}
+		// 取消是最高指令：不重试，原样上抛（重试循环会在重建 Job 后下一拍才感知，
+		// 白费一次 create/delete——短路掉）
+		if errors.Is(err, errCancelled) {
+			return err
+		}
 		if attempt >= maxRetry {
 			return err
 		}
@@ -92,6 +98,11 @@ func runK8sJobOnce(tc *taskCtx, jt *models.JobTask) error {
 
 	deadline := time.Now().Add(jobTimeout)
 	for {
+		// T1.5 取消检查点（每拍）：感知即删 Job（K8s 侧立即停）→ sentinel 上抛
+		if cancelled(tc.cancelCh) {
+			_ = tc.client.BatchV1().Jobs(tc.ns).Delete(context.TODO(), jt.K8sJobName, deleteOpts())
+			return errCancelled
+		}
 		job, err := tc.client.BatchV1().Jobs(tc.ns).Get(context.TODO(), jt.K8sJobName, metav1.GetOptions{})
 		if err != nil {
 			return fmt.Errorf("poll k8s job: %w", err)

@@ -80,6 +80,44 @@ func ListTasks(c *gin.Context) {
 	c.JSON(http.StatusOK, list)
 }
 
+// ---------- T1.5：取消任务（对照 Zadig DELETE /v4/workflowtask/...） ----------
+
+// CancelTask DELETE /api/tasks/:name/:id
+// 有看护 goroutine（注册表有号）：close 信号，看护人在一拍轮询内收口 → 202 Accepted；
+// 无看护人（pause 稳态 / queued / 孤儿幸存）：API 侧 CancelTree 纯数据收口 → 200；
+// 已终态：409（终态不可取消，幂等语义交还给调用方）。
+func CancelTask(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "task id must be a number"})
+		return
+	}
+	t, err := repo.FindTask(c.Param("name"), id)
+	if err == repo.ErrNotFound {
+		c.JSON(http.StatusNotFound, gin.H{"error": "task not found"})
+		return
+	}
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	if models.StatusFinished(t.Status) {
+		c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("task is already %s", t.Status)})
+		return
+	}
+
+	if engine.CancelRequested(t.ID) {
+		c.JSON(http.StatusAccepted, gin.H{"accepted": true, "note": "caretaker will collect within one poll"})
+		return
+	}
+	engine.CancelTree(t)
+	if err := repo.UpdateTask(t); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, t)
+}
+
 // ---------- M3：durable 暂停的放行端点（灵魂端点） ----------
 
 // releaseMu 把"检查 pause → 翻闸门 → 落库"圈成临界区（防手抖双击放出两个续跑 goroutine）

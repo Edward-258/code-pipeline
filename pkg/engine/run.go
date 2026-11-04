@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -25,10 +26,11 @@ const (
 // mu 保 ack 互斥：并行 job 各自回写时，整棵树的字段写 + BSON 序列化 + ReplaceOne
 // 必须串行（Zadig 同款问题同款解：jobcontroller 并行跑 job，ack 全量写）。
 type taskCtx struct {
-	client kubernetes.Interface
-	ns     string
-	t      *models.WorkflowTask // ack 的对象（整树写回的目标）
-	mu     sync.Mutex
+	client    kubernetes.Interface
+	ns        string
+	t         *models.WorkflowTask // ack 的对象（整树写回的目标）
+	mu        sync.Mutex
+	cancelCh  <-chan struct{} // T1.5 取消信号（close 广播；nil = 永不触发）
 }
 
 // ack —— 互斥版整树写回（并行场景下多 goroutine 共用）
@@ -49,6 +51,10 @@ func Run(t *models.WorkflowTask) {
 		}
 	}()
 
+	// T1.5：注册取消信号，goroutine 退出即注销（注册表只装活人）
+	cancelCh, unregister := registerCancel(t.ID)
+	defer unregister()
+
 	cfg := config.Load()
 	client, err := NewClient(cfg.K8SContext)
 	if err != nil {
@@ -63,7 +69,7 @@ func Run(t *models.WorkflowTask) {
 	ack(t)
 	log.Printf("engine: task %s/%d running", t.WorkflowName, t.TaskID)
 
-	runStages(&taskCtx{client: client, ns: cfg.K8SNamespace, t: t}, t)
+	runStages(&taskCtx{client: client, ns: cfg.K8SNamespace, t: t, cancelCh: cancelCh}, t)
 }
 
 // runStages —— 对照 Zadig RunStages：stage 严格按序，跑完聚合，失败刹车。
@@ -74,6 +80,16 @@ func runStages(tc *taskCtx, t *models.WorkflowTask) {
 	for _, st := range t.Stages {
 		if st.Status == models.StatusPassed || st.Status == models.StatusSkipped {
 			continue
+		}
+
+		// T1.5 取消检查点（stage 边界）：取消信号在 stage 间隙到的，当场收口——
+		// 本 stage 置 skipped，后续 stage 一并 skipped，任务 cancelled
+		if cancelled(tc.cancelCh) {
+			st.Status = models.StatusSkipped
+			markRestSkipped(t, st)
+			finish(t, models.StatusCancelled, "cancelled by user")
+			log.Printf("engine: task %s/%d cancelled at stage %q boundary", t.WorkflowName, t.TaskID, st.Name)
+			return
 		}
 
 		// M3 闸门（对照 Zadig stage.go waitForManualExec）：stage 开跑前若启用手动执行且未放行
@@ -203,12 +219,31 @@ func runJobTask(tc *taskCtx, t *models.WorkflowTask, st *models.StageTask, jt *m
 	log.Printf("engine: task %s/%d job %q -> %s", t.WorkflowName, t.TaskID, jt.Name, jt.K8sJobName)
 
 	ctl := newJobCtl(jt)
-	runErr := ctl.Run(tc, jt)     // K8s 级：创建/轮询/退出码/超时（期间 live 刷步骤状态）
-	infoErr := ctl.SaveInfo(tc, jt) // 步骤级：日志切分、junit 门禁、created→skipped
-	ctl.Clean(tc, jt)               // 资源与数据分离：执行物销毁，档案长存
+	runErr := ctl.Run(tc, jt) // K8s 级：创建/轮询/退出码/超时（期间 live 刷步骤状态）
+	infoErr := error(nil)
+	if !errors.Is(runErr, errCancelled) {
+		// 取消路径跳过 SaveInfo：finalizeSteps 会把 running 步骤翻成 failed（"did not
+		// finish"），与取消语义打架；步骤收口由下面的 cancelled 分支接管。日志不切分
+		// 是接受的代价（Job 已删，档案里保留 live 期间的步骤状态就够诊断）。
+		infoErr = ctl.SaveInfo(tc, jt) // 步骤级：日志切分、junit 门禁、created→skipped
+	}
+	ctl.Clean(tc, jt) // 资源与数据分离：执行物销毁，档案长存
 
 	tc.mu.Lock()
 	switch {
+	case errors.Is(runErr, errCancelled):
+		// T1.5：取消——job 与步骤收口 cancelled/skipped，不走 failed 语义
+		jt.Status = models.StatusCancelled
+		jt.Error = "cancelled by user"
+		for _, sp := range jt.Steps {
+			switch sp.Status {
+			case models.StatusRunning:
+				sp.Status = models.StatusCancelled
+				sp.Error = "cancelled by user"
+			case models.StatusCreated:
+				sp.Status = models.StatusSkipped
+			}
+		}
 	case runErr != nil:
 		jt.Status = models.StatusFailed
 		jt.Error = runErr.Error()
