@@ -210,9 +210,10 @@ func (c *ArchiveCtl) PreRun() (string, error) {
 		prefix = fmt.Sprintf("cd '%s' && ", d)
 	}
 	// glob 不命中：busybox tar 报 can't find → 步骤失败（产物缺席就该红，不该静默空包）
+	// 上传用 busybox wget（busybox/runner 镜像都没有 curl；wget --post-file 两边通吃）。
 	// URL 整体双引号：$ 变量在双引号内照常展开（docker_build 前缀的分段拼接是单引号场景的特例，这里用不上）
 	return prefix + fmt.Sprintf(
-		"tar czf /tmp/mp-artifact.tgz %s && curl -sf -X POST --data-binary @/tmp/mp-artifact.tgz \"$MP_ENGINE_URL/api/tasks/$MP_TASK_WF/$MP_TASK_ID/artifact/%s\" && rm -f /tmp/mp-artifact.tgz",
+		"tar czf /tmp/mp-artifact.tgz %s && wget -q -O- --post-file=/tmp/mp-artifact.tgz \"$MP_ENGINE_URL/api/tasks/$MP_TASK_WF/$MP_TASK_ID/artifact/%s\" && rm -f /tmp/mp-artifact.tgz",
 		c.spec.ArtifactGlob, name), nil
 }
 
