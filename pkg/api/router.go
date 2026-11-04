@@ -34,6 +34,9 @@ func NewRouter() *gin.Engine {
 		// T1.7/T1.8：克隆重跑 / 整任务重试
 		api.POST("/tasks/:name/:id/clone", CloneTask)
 		api.POST("/tasks/:name/:id/retry", RetryTask)
+		// T2.4：产物上传（Pod 内 archive 步骤 curl）与下载
+		api.POST("/tasks/:name/:id/artifact/:step", PutArtifact)
+		api.GET("/tasks/:name/:id/artifact/:step", GetArtifact)
 		// CI/CD：分步日志（活任务透传 Pod 尾部，死任务回档案分步日志）
 		api.GET("/tasks/:name/:id/log", GetTaskLog)
 		// M3：放行暂停的 stage（durable 暂停的灵魂端点）

@@ -40,7 +40,7 @@ func jobName(wfName string, taskID int64, stage, job string) string {
 //	镜像三档：显式指定 > git/docker_build 在场用 pipeline-runner > 纯 shell 用 busybox。
 //	runner 在 ACR 是私有镜像（与引擎镜像同实例，决断 #12 同链路），Job Pod 必须自带 pull secret——
 //	引擎 Deployment 挂的 imagePullSecrets 不会继承给运行时创建的 Job
-func buildJob(namespace string, jt *models.JobTask, script string) *batchv1.Job {
+func buildJob(namespace string, t *models.WorkflowTask, jt *models.JobTask, script string) *batchv1.Job {
 	spec := jt.Spec
 	image := spec.Image
 	if image == "" {
@@ -90,6 +90,9 @@ func buildJob(namespace string, jt *models.JobTask, script string) *batchv1.Job 
 							}}},
 							{Name: "MP_NODE_REGISTRY", Value: "$(MP_NODE_IP):30500"}, // K8s 依赖 env 展开
 							{Name: "MP_ATTEMPT", Value: strconv.Itoa(jt.Retry + 1)},  // T1.4：第几次尝试（重试脚本可确定性分支）
+							{Name: "MP_ENGINE_URL", Value: config.Load().EngineURL},  // T2.4：archive 上传目标
+							{Name: "MP_TASK_WF", Value: t.WorkflowName},              // T2.4：artifact 上传 URL 组装
+							{Name: "MP_TASK_ID", Value: strconv.FormatInt(t.TaskID, 10)},
 						},
 						VolumeMounts: mounts,
 					}},

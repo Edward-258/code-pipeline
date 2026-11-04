@@ -102,7 +102,7 @@ func runK8sJobOnce(tc *taskCtx, jt *models.JobTask) error {
 	if err != nil {
 		return err
 	}
-	if _, err := tc.client.BatchV1().Jobs(tc.ns).Create(context.TODO(), buildJob(tc.ns, jt, script), metav1.CreateOptions{}); err != nil {
+	if _, err := tc.client.BatchV1().Jobs(tc.ns).Create(context.TODO(), buildJob(tc.ns, tc.t, jt, script), metav1.CreateOptions{}); err != nil {
 		return fmt.Errorf("create k8s job: %w", err)
 	}
 

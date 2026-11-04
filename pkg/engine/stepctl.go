@@ -29,6 +29,8 @@ func newStepCtl(spec *models.StepSpec) StepCtl {
 		return &DockerBuildCtl{spec: spec}
 	case models.StepJunitReport:
 		return &JunitReportCtl{spec: spec}
+	case models.StepArchive:
+		return &ArchiveCtl{spec: spec}
 	default:
 		return &ShellCtl{spec: spec}
 	}
@@ -185,6 +187,36 @@ func (c *JunitReportCtl) AfterRun(st *models.StepTask) error {
 	}
 	return nil
 }
+
+// ---------- archive：打包产物 → curl 上传引擎 GridFS（T2.4） ----------
+
+type ArchiveCtl struct{ spec *models.StepSpec }
+
+// PreRun —— tar czf 工作区产物 → --data-binary POST 引擎 artifact 端点。
+// 上传走日志流之外的第二信道（HTTP），产物不进日志（64KB 截断装不下二进制）。
+// Zadig 的三种归档步骤（step_archive/tar_archive/html_report）在 S3 语义上等价，
+// 学习版砍 S3 用引擎 GridFS，三种合一种。
+func (c *ArchiveCtl) PreRun() (string, error) {
+	if c.spec.ArtifactGlob == "" {
+		return "", fmt.Errorf("archive step needs artifact_glob")
+	}
+	name := c.spec.ArtifactName
+	if name == "" {
+		name = c.spec.Name + ".tgz"
+	}
+	name = unsafeDirChars.ReplaceAllString(name, "-") // 进 URL 路径段：白名单消毒（$ 等在双引号里照样会被 shell 展开）
+	prefix := ""
+	if d := c.spec.ContextDir; d != "" {
+		prefix = fmt.Sprintf("cd '%s' && ", d)
+	}
+	// glob 不命中：busybox tar 报 can't find → 步骤失败（产物缺席就该红，不该静默空包）
+	// URL 整体双引号：$ 变量在双引号内照常展开（docker_build 前缀的分段拼接是单引号场景的特例，这里用不上）
+	return prefix + fmt.Sprintf(
+		"tar czf /tmp/mp-artifact.tgz %s && curl -sf -X POST --data-binary @/tmp/mp-artifact.tgz \"$MP_ENGINE_URL/api/tasks/$MP_TASK_WF/$MP_TASK_ID/artifact/%s\" && rm -f /tmp/mp-artifact.tgz",
+		c.spec.ArtifactGlob, name), nil
+}
+
+func (c *ArchiveCtl) AfterRun(*models.StepTask) error { return nil }
 
 // ---------- junit XML 解析（正则流派：容错拼接/不要求整体 well-formed） ----------
 

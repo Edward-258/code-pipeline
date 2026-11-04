@@ -12,7 +12,8 @@ type Config struct {
 	K8SContext   string // 仅本机调试用：kubeconfig 的 context 名；引擎在集群内跑时留空走 InClusterConfig
 	RunnerImage  string // 步骤执行器宿体镜像（git/docker_build 步骤的默认容器；chart values runner.image 注入）
 
-	MaxRunningTasks int // T1.6 全局并发上限（0 = 停止派发只收尾，维护用）
+	MaxRunningTasks int    // T1.6 全局并发上限（0 = 停止派发只收尾，维护用）
+	EngineURL       string // Pod 内访问引擎的地址（T2.4 archive 上传用；本机调试时 Pod 打不到宿主，属已知边界）
 }
 
 func Load() *Config {
@@ -31,6 +32,11 @@ func Load() *Config {
 		RunnerImage: getenv("RUNNER_IMAGE", "crpi-28fqgwft325ylccc-vpc.cn-heyuan.personal.cr.aliyuncs.com/codepipeline-learning/pipeline-runner:0.1.0"),
 
 		MaxRunningTasks: getenvInt("MAX_RUNNING_TASKS", 3),
+		// T2.4：archive 步骤从 Pod 里 curl 引擎。默认 = 本 namespace 的引擎 svc
+		// （chart 部署形态的服务名 <release-name>.<ns>.svc）；本机 go run 调试时 Pod 打
+		// 不到宿主引擎，archive 上传的活体验证需引擎在集群内跑（或 MP_ENGINE_URL 指到
+		// 可达地址），API 层回环由单测/验收脚本覆盖。
+		EngineURL: getenv("MP_ENGINE_URL", "http://mini-pipeline."+getenv("K8S_NAMESPACE", "pipeline")+".svc.cluster.local:8080"),
 	}
 }
 
