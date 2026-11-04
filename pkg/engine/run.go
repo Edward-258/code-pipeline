@@ -187,6 +187,17 @@ func runJobTask(tc *taskCtx, t *models.WorkflowTask, st *models.StageTask, jt *m
 	tc.mu.Lock()
 	jt.Status = models.StatusRunning
 	jt.K8sJobName = jobName(t.TaskID, st.Name, jt.Name)
+	// T1.3 变量渲染：生成 driver 前把该 job 的 spec 渲染掉（{{.global.x}} / {{.job.key}}）。
+	// 渲染在锁内的原因：BuildVarsCtx 读 t.GlobalContext，并行 stage 里兄弟 goroutine 的
+	// 终态收割会并发写它——读写都圈进同一把锁。渲染失败 = 规格非法，job 直接红，
+	// 不浪费一次 K8s 调度（与 GenerateDriverScript 的生成期报错同一哲学）。
+	if err := RenderVars(jt.Spec, BuildVarsCtx(t)); err != nil {
+		jt.Status = models.StatusFailed
+		jt.Error = fmt.Sprintf("render vars: %v", err)
+		ack(t)
+		tc.mu.Unlock()
+		return
+	}
 	ack(t)
 	tc.mu.Unlock()
 	log.Printf("engine: task %s/%d job %q -> %s", t.WorkflowName, t.TaskID, jt.Name, jt.K8sJobName)
@@ -206,9 +217,26 @@ func runJobTask(tc *taskCtx, t *models.WorkflowTask, st *models.StageTask, jt *m
 		jt.Error = infoErr.Error()
 	default:
 		jt.Status = models.StatusPassed
+		harvestOutputs(t, jt) // T1.3：只收成功 job 的输出（失败 job 的输出半途而废，不可信）
 	}
 	ack(t)
 	tc.mu.Unlock()
+}
+
+// harvestOutputs —— job 终态收割：jt.Outputs → t.GlobalContext（"<job>.<output>" 点分键，
+// 对照 Zadig writeOutputs 把 job 输出写进 workflowCtx）。存全局而非只存 jt.Outputs 的
+// 原因：渲染上下文只有 GlobalContext 一个真相源（BuildVarsCtx 单参），jt.Outputs 是
+// 分界面展示用的 job 级副本。下游 job 的 Run 天然拿到——它的脚本生成在收割之后。
+func harvestOutputs(t *models.WorkflowTask, jt *models.JobTask) {
+	if len(jt.Outputs) == 0 {
+		return
+	}
+	if t.GlobalContext == nil {
+		t.GlobalContext = map[string]string{}
+	}
+	for k, v := range jt.Outputs {
+		t.GlobalContext[jt.Name+"."+k] = v
+	}
 }
 
 // jobsWorst —— stage 终态 = jobs 最差者
