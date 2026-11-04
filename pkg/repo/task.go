@@ -3,6 +3,7 @@ package repo
 import (
 	"context"
 	"errors"
+	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -125,6 +126,75 @@ func ClaimQueued(t *models.WorkflowTask) (bool, error) {
 		return false, err
 	}
 	return res.MatchedCount == 1, nil
+}
+
+// TaskFilter —— T4.1 任务列表过滤/分页（对照 Zadig ListWorkflowTaskV4ByFilter 的极简版）
+type TaskFilter struct {
+	Status  string // 精确匹配（空 = 不过滤）
+	Creator string // 精确匹配（空 = 不过滤）
+	From    int64  // created_at ≥ From（unix 秒；0 = 不限）
+	To      int64  // created_at ≤ To（unix 秒；0 = 不限）
+	Page    int64  // 从 1 起；0 = 1
+	Size    int64  // 默认 20；上限 100（防止一把梭全表）
+}
+
+func (f *TaskFilter) Normalize() {
+	if f.Page < 1 {
+		f.Page = 1
+	}
+	if f.Size < 1 {
+		f.Size = 20
+	}
+	if f.Size > 100 {
+		f.Size = 100
+	}
+}
+
+// ListTasksFiltered —— 过滤 + 分页 + 总数（分页界面的三件套）。排序 task_id 降序（新的在前）。
+func ListTasksFiltered(workflowName string, f TaskFilter) ([]*models.WorkflowTask, int64, error) {
+	f.Normalize()
+	q := bson.M{"workflow_name": workflowName}
+	if f.Status != "" {
+		q["status"] = models.Status(f.Status)
+	}
+	if f.Creator != "" {
+		q["creator"] = f.Creator
+	}
+	if f.From > 0 || f.To > 0 {
+		rng := bson.M{}
+		if f.From > 0 {
+			rng["$gte"] = time.Unix(f.From, 0)
+		}
+		if f.To > 0 {
+			rng["$lte"] = time.Unix(f.To, 0)
+		}
+		q["created_at"] = rng
+	}
+
+	total, err := TaskColl.CountDocuments(context.TODO(), q)
+	if err != nil {
+		return nil, 0, err
+	}
+	opts := options.Find().
+		SetSort(bson.D{{Key: "task_id", Value: -1}}).
+		SetSkip((f.Page - 1) * f.Size).
+		SetLimit(f.Size).
+		SetProjection(bson.M{"stages": 0, "workflow_args": 0}) // 列表页不拉整棵树
+	cur, err := TaskColl.Find(context.TODO(), q, opts)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer cur.Close(context.TODO())
+
+	var out []*models.WorkflowTask
+	for cur.Next(context.TODO()) {
+		var t models.WorkflowTask
+		if err := cur.Decode(&t); err != nil {
+			return nil, 0, err
+		}
+		out = append(out, &t)
+	}
+	return out, total, cur.Err()
 }
 
 func ListTasks(workflowName string, limit int64) ([]*models.WorkflowTask, error) {
