@@ -1,8 +1,8 @@
 # AGENTS.md — mini-pipeline 项目上下文（给下一个会话的你）
 
-> **工作台（2026-11-02 起迁移）**：WSL2 Ubuntu-24.04，本仓库位于 `/home/edward/projects/mini-pipeline`（git 历史完整迁入，`core.autocrlf=input`）。工具链：go 1.26.4（/usr/local/go，GOPROXY=goproxy.cn）、helm v4.0.0、kubectl（context `k3s-heyuan` 已配通）、jq、gcc、git（身份 Edward-258）、**Docker Desktop 29.x（2026-11-04 起，本机直构直推镜像）**。路径映射：Zadig 模板 → `/mnt/e/code pipeline学习模板(基于zadig项目)/zadig`；SSH key → `~/.ssh/heyuan81.pem`（/mnt/e 原件 drvfs 权限 ssh 不认，已拷贝 + chmod 600）；Windows 临时目录 → `/mnt/c/Temp/opencode`。`deploy/build-push.sh`/`build-runner.sh` 是本机构建脚本（docker build + push ACR，不再 ssh worker）。Windows 旧副本 `E:\code pipeline的小范围复现` 仅作存档，勿双向编辑。
+> **工作台（2026-11-02 起迁移）**：WSL2 Ubuntu-24.04，本仓库位于 `/home/edward/projects/mini-pipeline`（git 历史完整迁入，`core.autocrlf=input`）。工具链：go 1.27.1（/usr/local/go，GOPROXY=goproxy.cn，2026-11-05 校对）、helm v3.19.0（~/.local/bin，2026-11-05 校对；⚠️ v3 的 upgrade **不复用**上次 --set，部署时所有 --set 必须显式带全）、kubectl（context `k3s-heyuan` 已配通）、jq、gcc、git（身份 Edward-258）、**Docker Desktop 29.x（2026-11-04 起，本机直构直推镜像）**。路径映射：Zadig 模板 → `/mnt/e/code pipeline学习模板(基于zadig项目)/zadig`；SSH key → `~/.ssh/heyuan81.pem`（/mnt/e 原件 drvfs 权限 ssh 不认，已拷贝 + chmod 600）；Windows 临时目录 → `/mnt/c/Temp/opencode`。`deploy/build-push.sh`/`build-runner.sh` 是本机构建脚本（docker build + push ACR，不再 ssh worker）。Windows 旧副本 `E:\code pipeline的小范围复现` 仅作存档，勿双向编辑。
 
-> **远端（2026-11-03 关联）**：`origin` = https://github.com/Edward-258/code-pipeline.git（**私有**，首推 master；仓库含明文密码，永不可转公开）。WSL 无 GitHub 凭证，推送走 Windows GCM 桥——credential.helper 已写进本仓库 local config（指向 `/mnt/c/Program Files/Git/mingw64/bin/git-credential-manager.exe`），裸 `git push` 即可，弹窗点一下就行。
+> **远端（2026-11-05 更新）**：`origin` = https://github.com/Edward-258/code-pipeline.git（**public**——用户 2026-11-05 拍板"本来就是开源的"，明文密码暴露风险知情接受，**禁止翻转可见性**；详见 §9 记录 10）。推送走 Windows GCM 桥——credential.helper 已写进本仓库 local config（指向 `/mnt/c/Program Files/Git/mingw64/bin/git-credential-manager.exe`），裸 `git push` 即可；gh CLI 2.103.3 已装 `~/.local/bin` 并经 GCM token 授权——MVP 执行期走**真 GitHub PR 流**（任务=分支=PR，阶段收口在 GitHub 侧合并，见桌面 `mvp复现计划.md` §0.3）。
 
 > 任何 AI 会话开始于此目录时，先读完本文件再动手。内容按"必读 → 速查 → 参考"排序。
 
@@ -27,7 +27,9 @@
 2. Stage 状态机 + **durable 暂停**（暂停=落库+goroutine 退出，进程重启可恢复）
 3. Job = K8s Job
 
-## 2. 当前进度（截至 2026-11-04）
+## 2. 当前进度（截至 2026-11-05）
+
+> **MVP 执行期（2026-11-05 起）**：按桌面 `mvp复现计划.md`（唯一任务事实源，§7 看板/§8 进度表）推进四阶段 MVP；工作模式 = 任务=分支=GitHub PR，阶段收口 GitHub 侧合并。M0–M5 全部保留，以下为历史进度。
 
 **M0 + M1 + M2 + M3 + M3.5 + 核心 CI/CD + M5 密封构建已完成**。M1 = run 端点 → counter 发号 → 快照落库 → K8s Job 创建/轮询/清理 → ack 全量写；引擎已镜像化部署进 k3s，经 ingress 对外。M2 = runStages 状态机（stage 内并行/串行 + 最差者胜聚合 + 失败刹车）。M3 = durable 暂停（闸门落库+goroutine 退出 → kill 引擎 Pod 档案仍在 → release 续跑）。M3.5 = 启动宣判（running 孤儿档案 cancelled + 泄漏 Job 清理；pause 稳态不碰——分叉自 Zadig，它连 waiting-approve 一起取消）。核心 CI/CD = 步骤化三级树 + bash driver + junit 门禁 + 分步日志（2026-11-04）。**M5 密封构建闭环收官（2026-11-04 晚，镜像 0.4.6，33 断言全绿）**：docker_build → registry:2 → 临时 Job 拉起产物全链路打通；收官路上修了三个真 bug（$MP_NODE_REGISTRY 单引号不展开 / containerd 双 copier 乱序写日志 / 验收脚本查错档案的化石红灯），详见 §9.10 修订与 §9.12。基础设施三连升：registry:2 移交 ArgoCD（#11）+ 引擎镜像走 ACR（#12）+ runner 镜像走 ACR（#12 扩展，2026-11-04）。
 
@@ -73,7 +75,7 @@
 7. runner 不主动回调：**Pod 退出码 = job 结果**，日志用 API 拉。
 8. 第一版不做队列/并发控制。
 9. 挂 docker.sock 的 Pod ≈ 节点 root，仅限学习集群，fat image 永不推公网。
-10. Mongo 密码明文写在 chart values 和 config/config.go——学习版接受，此仓库别推公开远端（2026-11-03 起已有**私有**远端 `origin` = github.com/Edward-258/code-pipeline，保持私有即合规；ACR 密码 `acr.password` 同档处理，只进私有处）。
+10. Mongo 密码明文写在 chart values 和 config/config.go——学习版接受（2026-11-05 起仓库已定 **public**，用户知情接受明文密码暴露风险并拍板维持公开，禁止翻转可见性，见 §9 记录 10；轮换 mongo/ACR 密码为可选卫生动作，集群 11-16 到期风险窗口有限）；ACR 密码 `acr.password` 同档处理。
 11. **registry:2 归 ArgoCD 管**（2026-11-02）：资源清单进 k3s-gitops 仓库（`registry` app，app-of-apps 第 4 位，sync-wave 3），chart 的 `tags.registry` 默认 false 只留作全新环境 bootstrap。新增 ingress 反代 `registry.47.113.177.198.nip.io` 供本机直连（无认证无 TLS 公网可达，仅学习期接受）。helm→argocd 移交手法见 §9.8。
 12. **引擎镜像分发走 ACR 个人版独立实例**（2026-11-03）：push = 公网端点（构建侧，节点或本地），pull = VPC 端点（`-vpc` 后缀，集群内网免公网流量）；凭证 = chart 内 imagePullSecret `acr-credential`（dockerconfigjson，节点 registries.yaml 不动、不重启 k3s，其它镜像拉取链路零影响）。**2026-11-04 扩展：runner 镜像同链路跟进**（`codepipeline-learning/pipeline-runner`，chart values `runner.image` → env `RUNNER_IMAGE` 注入引擎，升 tag 不用重编引擎）。⚠️ 引擎运行时创建的 Job Pod 必须**自带 imagePullSecrets acr-credential**（Deployment 挂的 secret 不会继承，engine/job.go buildJob 已内置）——dockerconfigjson 按 registry host 匹配，busybox 等 docker.io 公共镜像拉取不受影响。registry:2 角色已定 = docker_build 步骤的产物仓库（2026-11-04 M5 收官跑通），两条链路互不干扰。ACR 的坑见 §9.9。
 
@@ -92,7 +94,7 @@ deploy/build-runner.sh 0.1.0
 # ===== 核心 CI/CD 验收 =====
 bash deploy/test-cicd.sh              # 幕1 默认跳过；MP_ACT1=1 全套 33 断言（daemon.json 已放行，密封构建可跑）
 
-# ===== git 远端（私有 GitHub） =====
+# ===== git 远端（GitHub，public；PR 流见桌面 mvp复现计划.md §0.3） =====
 git push   # GCM 凭证桥已配在仓库 local config，裸敲即可（首次会弹 Windows 登录窗）
 
 # ===== 本机调试（引擎跑本机，连集群 mongo/创建集群 Job） =====
@@ -149,7 +151,7 @@ go test ./pkg/repo/ -v -run TestNextID   # 需先 port-forward mongo
 
 未竟事项（按优先级）：
 
-1. **自举彩蛋**：git 步骤克隆私有 code-pipeline 仓库构建引擎自身镜像（需用户提供 GitHub PAT；公开仓库克隆已验通——幕4 octocat/Hello-World）。
+1. **自举彩蛋**：git 步骤克隆 code-pipeline 仓库构建引擎自身镜像（仓库已 public，无需 PAT；公开仓库克隆已验通——幕4 octocat/Hello-World）。
 2. **M4 变量传递**：global_context（JSON marshal → `{{.key}}` 替换 → unmarshal，Zadig 粗暴方案）+ 单 job 重试 + outputs（StepCtl 挂点已留）。
 3. **M6 半吊子前端**：单 HTML + fetch 轮询；数据源已就绪（task 树带 steps/TestResult + 分步日志端点）。
 
