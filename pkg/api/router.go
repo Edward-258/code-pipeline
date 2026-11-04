@@ -20,6 +20,12 @@ func NewRouter() *gin.Engine {
 		api.GET("/workflows/:name", GetWorkflow)
 		api.DELETE("/workflows/:name", DeleteWorkflow)
 
+		// T3.1：定时触发（cron 配置 + 手动点火）
+		api.POST("/crons", CreateCron)
+		api.GET("/crons", ListCrons)
+		api.PUT("/crons/:name", UpdateCron)
+		api.DELETE("/crons/:name", DeleteCron)
+		api.POST("/crons/:name/fire", TriggerCron)
 		// T2.1：部署目标环境（env = 名字 → namespace，deploy job 的靶标）
 		api.POST("/envs", CreateEnv)
 		api.GET("/envs", ListEnvs)
