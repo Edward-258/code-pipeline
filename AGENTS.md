@@ -48,6 +48,12 @@
 - T2.5 自举图纸：deploy/bootstrap-workflow.json（toolchain→checkout→go test 门禁→docker_build 推 ACR tag=bootstrap）+ deploy job 打自身（wait_rollout=false）；bootstrap-ensure.sh 落库脚本（env self = pipeline ns）；**执行【需人工】：worker 节点 daemon docker login ACR + Role apply + POST run**
 - fake clientset 单测手法入档：reactor 模拟 rollout 控制器追上（fake 无控制器行为）；pollInterval/rolloutWaitTimeout 做成 var 供测试缩短节拍
 
+**阶段三"触发与协作"已收官（2026-11-05 凌晨，PR #16–#20，master `b977eae`；test-mvp3.sh 25 断言全绿）**：
+- T3.1 cron：手搓 5 段 crontab 匹配器（*/n/范围/列表/周日双写，坏表达式写入时 400）+ 整分钟对齐调度器（truncate+sleep 不漂移）；**TriggerWorkflow 统一触发入口**（cron/webhook/手动共用唯一"发号→快照→入队"构造器，RunWorkflow 重构其上）；POST /api/crons/:name/fire 手动点火（验收免等钟点）
+- T3.2 webhook：POST /api/webhook/:workflow；HMAC-SHA256 验签先行（GitHub X-Hub-Signature-256 / Gitee 双轨含明文 token；constant-time；多配置任一通过）；无签名仅当全部配置无 secret 放行（显式裸奔模式）；repo 归一（剥 .git/scheme/host）+ branch 匹配
+- T3.3 通知：notify 集合 CRUD + finish() 挂 fire-and-forget 通知钩子（1 重试，失败只记日志）；飞书/钉钉双报文 + 双平台加签（两家 HMAC 约定不同，注释钉死）；**不对称文档化**：CancelTree 纯数据取消不发通知（无看护人在场）
+- T3.4 原生审批：ManualExec 扩 approvers/policy/approvals；POST /api/tasks/:name/:id/approve（与 release 同锁同闸门位）；**活体抓真 bug：BuildTask 快照只拷 Enabled，approvers/policy 丢失 → all 静默变 any**（修 engine/task.go，审批记录属于运行不入图纸快照）；老图纸空名单 = 一条审批即过 ≡ release
+
 **M0 + M1 + M2 + M3 + M3.5 + 核心 CI/CD + M5 密封构建已完成**。M1 = run 端点 → counter 发号 → 快照落库 → K8s Job 创建/轮询/清理 → ack 全量写；引擎已镜像化部署进 k3s，经 ingress 对外。M2 = runStages 状态机（stage 内并行/串行 + 最差者胜聚合 + 失败刹车）。M3 = durable 暂停（闸门落库+goroutine 退出 → kill 引擎 Pod 档案仍在 → release 续跑）。M3.5 = 启动宣判（running 孤儿档案 cancelled + 泄漏 Job 清理；pause 稳态不碰——分叉自 Zadig，它连 waiting-approve 一起取消）。核心 CI/CD = 步骤化三级树 + bash driver + junit 门禁 + 分步日志（2026-11-04）。**M5 密封构建闭环收官（2026-11-04 晚，镜像 0.4.6，33 断言全绿）**：docker_build → registry:2 → 临时 Job 拉起产物全链路打通；收官路上修了三个真 bug（$MP_NODE_REGISTRY 单引号不展开 / containerd 双 copier 乱序写日志 / 验收脚本查错档案的化石红灯），详见 §9.10 修订与 §9.12。基础设施三连升：registry:2 移交 ArgoCD（#11）+ 引擎镜像走 ACR（#12）+ runner 镜像走 ACR（#12 扩展，2026-11-04）。
 
 里程碑总览（详细验收标准见桌面 `mini-zadig-计划.md`）：
