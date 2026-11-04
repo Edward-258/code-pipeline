@@ -1,6 +1,7 @@
 {{- if .Values.tags.engine }}
-# 引擎对 K8s 的最小权限：只在本 namespace 里管 Job + 读 Pod/日志
-# （Zadig 的 aslan 也是以 SA 身份操作业务集群，这里是学习版的最小化）
+# 引擎对 K8s 的最小权限：本 namespace 里管 Job + 读 Pod/日志 + patch 工作负载（T2.2 deploy job）
+# （Zadig 的 aslan 也是以 SA 身份操作业务集群，这里是学习版的最小化。
+#   ⚠️ deployments 权限是 deploy job 的硬前提，2026-11-05 T2.3 扩展；活体生效需人工 helm upgrade）
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -13,4 +14,9 @@ rules:
   - apiGroups: [""]
     resources: ["pods", "pods/log"]
     verbs: ["get", "list"]
+  # T2.2/T2.3：deploy job 直接 patch 目标 namespace 的 Deployment
+  # （StatefulSet/DaemonSet 一并放进来，后续重启类 job 免改 Role；学习集群接受）
+  - apiGroups: ["apps"]
+    resources: ["deployments", "statefulsets", "daemonsets"]
+    verbs: ["get", "list", "watch", "patch", "update"]
 {{- end }}
