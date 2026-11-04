@@ -23,6 +23,7 @@ func TestGenerateDriverScript(t *testing.T) {
 	for _, want := range []string{
 		`say "STEP-START $1"`,        // banner 前奏
 		`say "STEP-END $1 failed exit=$rc"`,
+		`mp_output() { say "OUTPUT $1"; }`, // T1.2：OUTPUT 产出助手
 		`exit "$rc"`,                 // 失败即停 + 退出码透传
 		"git clone --depth 1 -b 'dev'", // git 片段
 		`"$MP_NODE_REGISTRY"/'demo:1.0'`, // docker_build 片段（前缀双引号可展开，幕1 首跑教训）

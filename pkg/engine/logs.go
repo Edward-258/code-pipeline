@@ -45,6 +45,24 @@ func applyStepBanners(jt *models.JobTask, logText string, now time.Time) bool {
 			}
 			continue
 		}
+		// OUTPUT <k>=<v>（M4）：步骤脚本经 mp_output / 裸 echo 产出的变量声明。
+		// job 级收割进 jt.Outputs（单行 k=v；值含 '=' 时首个 '=' 后全算值）。
+		// 幂等：重放同值不触发 ack；畸形行（无 '='/空键）静默跳过——协议解析不许 panic 引擎。
+		// ⚠️ 判变必须用 exists：absent key 读出来也是零值空串，`m[k] != v` 会把
+		// "OUTPUT K="（空值首见）误判成无变化、永不落 map（表测抓的真 bug）。
+		if rest, ok := strings.CutPrefix(payload, "OUTPUT "); ok {
+			if k, v, eq := strings.Cut(rest, "="); eq && strings.TrimSpace(k) != "" {
+				if jt.Outputs == nil {
+					jt.Outputs = map[string]string{}
+				}
+				old, exists := jt.Outputs[k]
+				if !exists || old != v {
+					jt.Outputs[k] = v
+					changed = true
+				}
+			}
+			continue
+		}
 		if rest, ok := strings.CutPrefix(payload, "STEP-END "); ok {
 			// 末段 exit=N、次末段 verdict、其余全是 name（名字允许含空格，从右往左剥）
 			f := strings.Fields(rest)

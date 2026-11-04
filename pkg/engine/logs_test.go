@@ -65,6 +65,45 @@ func TestApplyStepBanners(t *testing.T) {
 	}
 }
 
+// TestApplyStepBannersOutputs —— OUTPUT banner 收割（T1.2）：合法/畸形/幂等/黏连
+func TestApplyStepBannersOutputs(t *testing.T) {
+	jt := jobWithSteps("emit")
+	log1 := "===MP=== STEP-START emit\n" +
+		"===MP=== OUTPUT IMAGE=reg/app:v1\n" + // mp_output 正常产出
+		"raw text\n" +
+		"trail ===MP=== OUTPUT TAG=latest\n" + // 行中 banner（黏连护栏同样适用）
+		"===MP=== OUTPUT KV=a=b\n" + // 值含 '='：首个 '=' 切分，值 = "a=b"
+		"===MP=== OUTPUT EMPTY=\n" + // 空值合法
+		"===MP=== OUTPUT NOEQUALS\n" + // 畸形：无 '='，跳过
+		"===MP=== OUTPUT =blank\n" + // 畸形：空键，跳过
+		"===MP=== STEP-END emit passed exit=0\n"
+	if !applyStepBanners(jt, log1, now) {
+		t.Fatal("outputs should report change")
+	}
+	want := map[string]string{"IMAGE": "reg/app:v1", "TAG": "latest", "KV": "a=b", "EMPTY": ""}
+	if len(jt.Outputs) != len(want) {
+		t.Fatalf("Outputs = %v, want %v", jt.Outputs, want)
+	}
+	for k, v := range want {
+		if jt.Outputs[k] != v {
+			t.Errorf("Outputs[%q] = %q, want %q", k, jt.Outputs[k], v)
+		}
+	}
+
+	// 幂等：重放同值日志 → 无变化不 ack
+	if applyStepBanners(jt, log1, now) {
+		t.Error("replay of same outputs should be a no-op")
+	}
+
+	// 覆盖：同名键新值 → 收割并报变化（重放语义 = 最后出现的值生效）
+	if !applyStepBanners(jt, "===MP=== OUTPUT IMAGE=reg/app:v2\n", now) {
+		t.Error("value change should report change")
+	}
+	if jt.Outputs["IMAGE"] != "reg/app:v2" {
+		t.Errorf("Outputs[IMAGE] = %q, want v2", jt.Outputs["IMAGE"])
+	}
+}
+
 // TestSliceStepLogs —— 日志按 banner 切分：各步拿各的，未知步骤进黑洞
 func TestSliceStepLogs(t *testing.T) {
 	jt := jobWithSteps("a", "b", "c")
