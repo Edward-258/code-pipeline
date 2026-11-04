@@ -25,7 +25,7 @@ func TestGenerateDriverScript(t *testing.T) {
 		`say "STEP-END $1 failed exit=$rc"`,
 		`exit "$rc"`,                 // 失败即停 + 退出码透传
 		"git clone --depth 1 -b 'dev'", // git 片段
-		"$MP_NODE_REGISTRY/demo:1.0",   // docker_build 片段（registry 前缀注入）
+		`"$MP_NODE_REGISTRY"/'demo:1.0'`, // docker_build 片段（前缀双引号可展开，幕1 首跑教训）
 		"cat *.xml",                     // junit 片段
 		"echo hi",                       // shell 片段
 		"mp_run 'checkout' mp_step_1",   // 按序注册

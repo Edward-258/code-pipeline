@@ -125,7 +125,8 @@ ensure_wf <<'EOF'
     {"name":"never","type":"shell","script":"echo SHOULD-NOT-RUN"}]}}]},
   {"name":"deploy","jobs":[{"name":"d","type":"freestyle","spec":{"image":"busybox","scripts":["echo deployed"]}}]}]}
 EOF
-T=$(wait_status cicd-fail "$(run_wf cicd-fail)" failed 60)
+FTID=$(run_wf cicd-fail)
+T=$(wait_status cicd-fail "$FTID" failed 60)
 assert_eq "task failed"          "$(field "$T" .status)" "failed"
 assert_eq "boom failed"          "$(field "$T" '.stages[0].jobs[0].steps[0].status')" "failed"
 assert_eq "boom 退出码=3"        "$(field "$T" '.stages[0].jobs[0].steps[0].error')" "exit=3"
@@ -158,7 +159,9 @@ assert_has "git clone 日志"  "$(field "$T" '.stages[0].jobs[0].steps[0].log')"
 assert_has "show 读到 README" "$(field "$T" '.stages[0].jobs[0].steps[1].log')" "Hello World!"
 
 echo "== 附加：分步日志端点（终态回档案） =="
-LOGS=$(curl -sk "$BASE/api/tasks/cicd-fail/$(field "$T" .task_id)/log?stage=build&job=j")
+# ⚠️ 必须用 cicd-fail 自己的 FTID：两 workflow 的 counter 各自独立递增，
+# 历史上拿幕4 cicd-git 的 task_id 来查导致一直读到旧引擎时代的化石档案（假红灯三连）
+LOGS=$(curl -sk "$BASE/api/tasks/cicd-fail/$FTID/log?stage=build&job=j")
 assert_has "boom 步骤日志（stderr 混流）" "$LOGS" "gonna-die"
 assert_has "never 步骤收口" "$LOGS" "step never"
 

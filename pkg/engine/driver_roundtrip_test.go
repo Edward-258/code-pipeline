@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"bytes"
 	"os/exec"
 	"strings"
 	"testing"
@@ -27,13 +28,25 @@ func TestDriverRoundtrip(t *testing.T) {
 		t.Fatalf("generate: %v", err)
 	}
 
-	out, err := exec.Command(sh, "-c", script).CombinedOutput() // Pod 日志本来就混流 stdout+stderr
+	// ⚠️ 分离捕获（不再 CombinedOutput）：驱动必须单流（prelude 的 exec 2>&1）。
+	// containerd 两条 copier 乱序追写同一文件，stderr 块可能落在任何 banner 前
+	// （幕1 首跑实录：gonna-die 落在 STEP-START 前，按 banner 切分掉进黑洞）。
+	// 单流不变量 = stderr 缓冲必须为空，全部输出按写出顺序进 stdout。
+	cmd := exec.Command(sh, "-c", script)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	runErr := cmd.Run()
+	out := stdout.String()
+
 	// 期望脚本 exit 7（失败退出码透传）；err 非 nil 且 ExitError
-	if err == nil {
+	if runErr == nil {
 		t.Fatalf("script should exit non-zero, got 0:\n%s", out)
 	}
-	if ee, ok := err.(*exec.ExitError); !ok || ee.ExitCode() != 7 {
-		t.Fatalf("want exit 7, got %v", err)
+	if ee, ok := runErr.(*exec.ExitError); !ok || ee.ExitCode() != 7 {
+		t.Fatalf("want exit 7, got %v", runErr)
+	}
+	if stderr.Len() != 0 {
+		t.Errorf("driver must be single-stream (exec 2>&1): %d bytes leaked to stderr: %q", stderr.Len(), stderr.String())
 	}
 
 	jt := jobWithSteps("first", "boom", "never")

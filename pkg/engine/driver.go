@@ -41,12 +41,18 @@ func GenerateDriverScript(steps []*models.StepSpec) (string, error) {
 // driverPrelude —— 驱动脚本的公共骨架。⚠️ 保持 POSIX sh（alpine 是 ash 不是 bash）：
 // 不用 local、不用 [[ ]]、不用数组。$1=步骤名（banner 用），$2=步骤函数名。
 //
+// 首行 exec 2>&1 是协议的地基（2026-11-04 幕1 首跑踩实）：containerd shim 用两条独立
+// copier 追写同一日志文件，写入顺序≠写出时间——stderr 块可能落在任何 banner 的前面
+// （实测 gonna-die 落在了 STEP-START 前），按 banner 切分就把整段 stderr 切进黑洞。
+// 在 shell 层合并成单流：单 copier = 文件顺序严格等于写出顺序，切分从此确定性成立。
+//
 // say 的前置 \n 是协议护栏：步骤输出可能没有尾换行（如 printf 无 \n 的 XML），
 // 直接 echo 会让 banner 黏在输出尾部、不在行首——解析器就看瞎了。
 // EXIT trap 是另一道护栏：步骤体里写裸 `exit N` 时 shell 直接死亡、mp_run 的
 // END banner 永远到不了——trap 此刻补发末班 banner，退出码不丢。
 // 正常路径先把 MP_CUR 清空再 exit，trap 看到空就哑火，不会双打。
-const driverPrelude = `say() { printf '\n===MP=== %s\n' "$*"; }
+const driverPrelude = `exec 2>&1
+say() { printf '\n===MP=== %s\n' "$*"; }
 MP_CUR=""
 mp_run() {
   say "STEP-START $1"

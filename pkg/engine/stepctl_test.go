@@ -43,11 +43,13 @@ func TestGitCtlPreRun(t *testing.T) {
 }
 
 // TestDockerBuildCtlPreRun —— 构建片段：registry 前缀注入与已带前缀的豁免
+// ⚠️ 前缀段必须是 "$MP_NODE_REGISTRY"/ 双引号形态（sh 不展开单引号里的变量，
+// 幕1 首跑时单引号形态让 docker 收到字面量报 exit=125——测试要钉住的是 shell 语义不是字符串长相）
 func TestDockerBuildCtlPreRun(t *testing.T) {
 	frag, _ := (&DockerBuildCtl{spec: &models.StepSpec{Type: models.StepDockerBuild, Image: "mini-demo"}}).PreRun()
-	if !strings.Contains(frag, "-t '$MP_NODE_REGISTRY/mini-demo:latest'") ||
-		!strings.Contains(frag, "docker push '$MP_NODE_REGISTRY/mini-demo:latest'") {
-		t.Errorf("bare image should get registry prefix + latest tag: %s", frag)
+	if !strings.Contains(frag, `-t "$MP_NODE_REGISTRY"/'mini-demo:latest'`) ||
+		!strings.Contains(frag, `docker push "$MP_NODE_REGISTRY"/'mini-demo:latest'`) {
+		t.Errorf("bare image should get expandable registry prefix + latest tag: %s", frag)
 	}
 
 	frag, _ = (&DockerBuildCtl{spec: &models.StepSpec{Type: models.StepDockerBuild, Image: "172.29.237.250:3050/x", Tag: "v2", Dockerfile: "build/Dockerfile", ContextDir: "cmd/app"}}).PreRun()

@@ -77,16 +77,23 @@ func (K8sJobCtl) Run(tc *taskCtx, jt *models.JobTask) error {
 
 func (K8sJobCtl) SaveInfo(tc *taskCtx, jt *models.JobTask) error {
 	// 终态收割（稳定探测）：containerd 用两条读线程分别收 stdout/stderr 再拼进同一日志文件，
-	// stderr 行可能比 stdout 晚 1~2 秒才落盘（实测 Job 终态后 ~1.6s 仍可能没到）。
-	// 连续两次长度一致视为收完（早退），最多再等 3s 兜底。
+	// stderr 行可能比 stdout 晚 1~2 秒才落盘。单次等长就收手不够——幕1 首跑（2026-11-04）实测
+	// 节点有负载时 stderr 可超过 ~3s 窗口，boom 步骤的报错行整条丢失。改为连续 2 次等长
+	// （首拉 + 2 拍一致 = 3 次同长）才算稳定，上限 ~6s 兜底。
 	fullLog, _ := podLog(tc.client, tc.ns, jt.K8sJobName)
-	for i := 0; i < 5; i++ {
+	stable := 0
+	for i := 0; i < 10 && stable < 2; i++ {
 		time.Sleep(600 * time.Millisecond)
 		l2, err := podLog(tc.client, tc.ns, jt.K8sJobName)
-		if err != nil || len(l2) == len(fullLog) {
+		if err != nil {
 			break
 		}
-		fullLog = l2
+		if len(l2) == len(fullLog) {
+			stable++
+		} else {
+			stable = 0
+			fullLog = l2
+		}
 	}
 
 	tc.mu.Lock()
