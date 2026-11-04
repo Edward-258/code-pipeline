@@ -119,7 +119,7 @@ func validateWorkflow(wf *models.Workflow) error {
 					return errNew("stage[%d].job[%d]: step name is required", i, j)
 				}
 				switch ss.Type {
-				case models.StepShell, models.StepGit, models.StepDockerBuild, models.StepJunitReport:
+				case models.StepShell, models.StepGit, models.StepDockerBuild, models.StepJunitReport, models.StepArchive:
 				default:
 					return errNew("stage[%d].job[%d]: unknown step type %q", i, j, ss.Type)
 				}

@@ -135,6 +135,7 @@ func TestArchiveDriverGeneration(t *testing.T) {
 	}
 	for _, want := range []string{
 		"tar czf /tmp/mp-artifact.tgz dist/*.tgz",
+		"wget -q -O- --post-file=/tmp/mp-artifact.tgz",
 		`"$MP_ENGINE_URL/api/tasks/$MP_TASK_WF/$MP_TASK_ID/artifact/out.tgz"`,
 	} {
 		if !strings.Contains(script, want) {
