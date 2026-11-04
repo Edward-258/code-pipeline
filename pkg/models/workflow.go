@@ -8,10 +8,11 @@ import (
 // Workflow —— 图纸（对照 Zadig models/workflow_v4.go 的 WorkflowV4）
 // 学习版差异：44 种 job 类型砍到只剩 freestyle，Spec 直接是具体结构体而非 interface{}
 type Workflow struct {
-	Name      string    `bson:"_id"       json:"name"` // 图纸名即主键
-	Stages    []*Stage  `bson:"stages"    json:"stages"`
-	CreatedAt time.Time `bson:"created_at" json:"created_at"`
-	UpdatedAt time.Time `bson:"updated_at" json:"updated_at"`
+	Name          string            `bson:"_id"       json:"name"` // 图纸名即主键
+	Stages        []*Stage          `bson:"stages"    json:"stages"`
+	GlobalContext map[string]string `bson:"global_context,omitempty" json:"global_context,omitempty"` // 图纸级变量初始值（开跑时拷进 task.GlobalContext，M4）
+	CreatedAt     time.Time         `bson:"created_at" json:"created_at"`
+	UpdatedAt     time.Time         `bson:"updated_at" json:"updated_at"`
 }
 
 // Stage —— 阶段（对照 Zadig WorkflowStage）
