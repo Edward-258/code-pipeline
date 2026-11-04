@@ -52,7 +52,7 @@ assert_eq "点火 creator 标记" "$CREATOR" "cron:mvp3-minutely"
 echo "  （等真调度器到点触发，≤75s…）"
 FIRED=0
 for i in $(seq 1 38); do
-  if curl -sk "$BASE/api/tasks/mvp3-cron" | jq -e '.[] | select(.creator=="cron:mvp3-minutely" and .task_id>1)' >/dev/null 2>&1; then
+  if curl -sk "$BASE/api/tasks/mvp3-cron" | jq -e '.items[] | select(.creator=="cron:mvp3-minutely" and .task_id>1)' >/dev/null 2>&1; then
     FIRED=1; break
   fi
   sleep 2

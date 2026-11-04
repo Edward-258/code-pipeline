@@ -52,18 +52,25 @@ func GetTask(c *gin.Context) {
 	c.JSON(http.StatusOK, t)
 }
 
-// ListTasks GET /api/tasks/:name —— 列表（repo 层已投影掉 stages/workflow_args 大字段）
+// ListTasks GET /api/tasks/:name?status=&creator=&from=&to=&page=&size=
+// T4.1 过滤+分页版：响应包一层 envelope {items,total,page,size}（前端分页三件套）。
+// ⚠️ 响应形状从裸数组改为 envelope——test-mvp1/3 的 jq 消费方已同步更新。
 func ListTasks(c *gin.Context) {
-	limit, err := strconv.ParseInt(c.DefaultQuery("limit", "20"), 10, 64)
-	if err != nil || limit < 0 {
-		limit = 20
+	f := repo.TaskFilter{
+		Status:  c.Query("status"),
+		Creator: c.Query("creator"),
 	}
-	list, err := repo.ListTasks(c.Param("name"), limit)
+	f.From, _ = strconv.ParseInt(c.Query("from"), 10, 64)
+	f.To, _ = strconv.ParseInt(c.Query("to"), 10, 64)
+	f.Page, _ = strconv.ParseInt(c.Query("page"), 10, 64)
+	f.Size, _ = strconv.ParseInt(c.Query("size"), 10, 64)
+	items, total, err := repo.ListTasksFiltered(c.Param("name"), f)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, list)
+	f.Normalize() // 响应里的 page/size 要是归一化后的真实值
+	c.JSON(http.StatusOK, gin.H{"items": items, "total": total, "page": f.Page, "size": f.Size})
 }
 
 // ---------- T1.5：取消任务（对照 Zadig DELETE /v4/workflowtask/...） ----------
