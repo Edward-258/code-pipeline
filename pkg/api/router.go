@@ -26,6 +26,9 @@ func NewRouter() *gin.Engine {
 		api.GET("/tasks/:name/:id", GetTask)
 		// T1.5：取消任务（活任务信号广播，pause/queued 纯数据收口）
 		api.DELETE("/tasks/:name/:id", CancelTask)
+		// T1.7/T1.8：克隆重跑 / 整任务重试
+		api.POST("/tasks/:name/:id/clone", CloneTask)
+		api.POST("/tasks/:name/:id/retry", RetryTask)
 		// CI/CD：分步日志（活任务透传 Pod 尾部，死任务回档案分步日志）
 		api.GET("/tasks/:name/:id/log", GetTaskLog)
 		// M3：放行暂停的 stage（durable 暂停的灵魂端点）
