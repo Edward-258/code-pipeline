@@ -245,22 +245,36 @@ func buildTask(wf *models.Workflow, taskID int64) *models.WorkflowTask {
 	return &models.WorkflowTask{
 		ID:            fmt.Sprintf("%s-%d", wf.Name, taskID), // 自然键：插入前定好，ack 全靠它
 		TaskID:        taskID,
-		WorkflowName: wf.Name,
-		Status:       models.StatusCreated,
-		Creator:      "api",
-		WorkflowArgs: snapshotWorkflow(wf),
-		Stages:       stages,
-		CreatedAt:    time.Now(),
+		WorkflowName:  wf.Name,
+		Status:        models.StatusCreated,
+		Creator:       "api",
+		WorkflowArgs:  snapshotWorkflow(wf),
+		GlobalContext: copyStrings(wf.GlobalContext), // M4：图纸级变量 → 任务初始上下文（快照独立副本，改图纸不影响在跑任务）
+		Stages:        stages,
+		CreatedAt:     time.Now(),
 	}
+}
+
+// copyStrings —— string map 浅值深拷贝（值是 string，拷 map 结构即可）
+func copyStrings(m map[string]string) map[string]string {
+	if m == nil {
+		return nil
+	}
+	out := make(map[string]string, len(m))
+	for k, v := range m {
+		out[k] = v
+	}
+	return out
 }
 
 // snapshotWorkflow —— 图纸深拷贝（Stage/Job/Spec 逐层复制，绝不共享指针）
 func snapshotWorkflow(wf *models.Workflow) *models.Workflow {
 	out := &models.Workflow{
-		Name:      wf.Name,
-		Stages:    make([]*models.Stage, 0, len(wf.Stages)),
-		CreatedAt: wf.CreatedAt,
-		UpdatedAt: wf.UpdatedAt,
+		Name:          wf.Name,
+		Stages:        make([]*models.Stage, 0, len(wf.Stages)),
+		GlobalContext: copyStrings(wf.GlobalContext), // 快照连变量初始值一起封存
+		CreatedAt:     wf.CreatedAt,
+		UpdatedAt:     wf.UpdatedAt,
 	}
 	for _, st := range wf.Stages {
 		s := &models.Stage{Name: st.Name, Parallel: st.Parallel}
