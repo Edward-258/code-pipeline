@@ -20,6 +20,8 @@ func NewRouter() *gin.Engine {
 		api.GET("/workflows/:name", GetWorkflow)
 		api.DELETE("/workflows/:name", DeleteWorkflow)
 
+		// T3.2：git webhook 触发（GitHub/Gitee push，HMAC 验签）
+		api.POST("/webhook/:workflow", Webhook)
 		// T3.1：定时触发（cron 配置 + 手动点火）
 		api.POST("/crons", CreateCron)
 		api.GET("/crons", ListCrons)
