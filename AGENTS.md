@@ -31,6 +31,15 @@
 
 > **MVP 执行期（2026-11-05 起）**：按桌面 `mvp复现计划.md`（唯一任务事实源，§7 看板/§8 进度表）推进四阶段 MVP；工作模式 = 任务=分支=GitHub PR，阶段收口 GitHub 侧合并。M0–M5 全部保留，以下为历史进度。
 
+**阶段一"执行基建补课"已收官（2026-11-05 夜，PR #1–#9，`deploy/test-mvp1.sh` 35 断言全绿；镜像 0.5.x 待人工拍板后构建）**：
+- T1.1–T1.3 变量体系：`pkg/engine/vars.go` renderVars（JSON marshal→`{{.ns.key}}`替换→unmarshal，SetEscapeHTML(false) 保脚本字符）+ driver `mp_output` banner（`===MP=== OUTPUT k=v`）收割 jt.Outputs → GlobalContext（`<job>.<output>` 点分键）→ 下游 job Run 时渲染（锁内，防并行收割竞态）
+- T1.4 单 job 重试：spec.Retry + resetForRetry（化石现场清理）+ Pod env `MP_ATTEMPT`（重试剧本可确定性分支）
+- T1.5 取消：DELETE /api/tasks/:name/:id 双路径（活任务 close(chan) 信号 202 一拍收口 / pause·queued·孤儿 CancelTree 纯数据 200 / 终态 409）；cancelEntry closed 标志防二次 close panic
+- T1.6 任务队列：1s ticker 扫 queued（task_id 升序 FIFO）→ CAS 抢占（repo.ClaimQueued 条件更新防双派）→ go Run；全局 `MAX_RUNNING_TASKS`（默认3，0=只收尾）+ 同 wf 串行；pause 不占名额；release 走正常入队；Recover 扫描集加 queued（重启排空）
+- T1.7/T1.8 克隆+整任务重试：clone（快照→新号→入队，creator=clone:<src>，GlobalContext 全新）；retry（仅终态 409 守卫；resetForRetryRun 树内手术：failed/cancelled/**skipped 刹车残留**复活、passed 子树不动、Retry 预算归零；runStage 跳过 passed job）
+- T1.9 错误策略+超时：spec.TimeoutMinutes（默认10）+ spec.ErrorPolicy（stop/retry/ignore，图纸白名单校验）；**控制/上报分离**（策略只改控制流，失败照红）；task 尾态 WorstOf 如实收口
+- **拆 M1 老雷**（T1.6 活体抓的）：jobName 不含 workflow 名 → 跨 wf 同号任务 K8s Job 名碰撞互相践踏（队列时代必炸）；现名 `mp-<wf>-<taskID>-<stage>-<job>`，教训入档 §9.14
+
 **M0 + M1 + M2 + M3 + M3.5 + 核心 CI/CD + M5 密封构建已完成**。M1 = run 端点 → counter 发号 → 快照落库 → K8s Job 创建/轮询/清理 → ack 全量写；引擎已镜像化部署进 k3s，经 ingress 对外。M2 = runStages 状态机（stage 内并行/串行 + 最差者胜聚合 + 失败刹车）。M3 = durable 暂停（闸门落库+goroutine 退出 → kill 引擎 Pod 档案仍在 → release 续跑）。M3.5 = 启动宣判（running 孤儿档案 cancelled + 泄漏 Job 清理；pause 稳态不碰——分叉自 Zadig，它连 waiting-approve 一起取消）。核心 CI/CD = 步骤化三级树 + bash driver + junit 门禁 + 分步日志（2026-11-04）。**M5 密封构建闭环收官（2026-11-04 晚，镜像 0.4.6，33 断言全绿）**：docker_build → registry:2 → 临时 Job 拉起产物全链路打通；收官路上修了三个真 bug（$MP_NODE_REGISTRY 单引号不展开 / containerd 双 copier 乱序写日志 / 验收脚本查错档案的化石红灯），详见 §9.10 修订与 §9.12。基础设施三连升：registry:2 移交 ArgoCD（#11）+ 引擎镜像走 ACR（#12）+ runner 镜像走 ACR（#12 扩展，2026-11-04）。
 
 里程碑总览（详细验收标准见桌面 `mini-zadig-计划.md`）：
@@ -176,3 +185,5 @@ go test ./pkg/repo/ -v -run TestNextID   # 需先 port-forward mongo
 11. **driver banner 协议的两道护栏**（2026-11-04，两个真 bug 均实测复现后修复）：① **黏连 banner**——步骤输出可能没有尾换行（printf 无 \n 的 junit XML），echo 出的 banner 会黏在输出尾部不在行首、解析器看瞎 → 双修：say() 用 `printf '\n===MP=== %s\n'` 前置换行 + 解析器 `strings.Index` 行中匹配；② **裸 exit 漏 banner**——步骤体直接 `exit N` 掀翻 shell，mp_run 的 END banner 永远打不出 → EXIT trap + MP_CUR 当前步骤指针补发末班 banner（正常路径先清 MP_CUR 再 exit，trap 哑火不双打）。回归测试在 `engine/logs_test.go`（黏连）与 `driver_roundtrip_test.go`（裸 exit）。
 12. **验收脚本查化石档案的假红灯**（2026-11-04，三连红的真凶）：每个 workflow 的 task counter **各自独立递增**（`workflow_task:<name>`），test-cicd.sh 附加断言曾拿幕4 cicd-git 的 task_id 去查 cicd-fail 的日志——两 counter 早已分叉（11 vs 4），读到的是旧引擎时代的任务 4 档案，新引擎修什么它都恒红。修法：幕3 先存 `FTID=$(run_wf cicd-fail)` 自己的号。教训：跨 workflow 借 id = 读化石；断言红三连且"修了没变化"时，先怀疑被测对象是不是你以为的那个。
 13. **本机 Docker Desktop 拉不动 docker.io**（2026-11-04）：WSL 侧 docker pull 报 `auth.docker.io/token ... EOF`——TLS 握手即被掐（SNI 阻断），非瞬时抖动。解法（不动 Docker Desktop 全局配置）：经 mirror 拉基镜像再 retag，`docker pull docker.m.daocloud.io/library/golang:1.26-alpine && docker tag ... golang:1.26-alpine`，构建走本地缓存不再碰 docker.io；worker 节点的 daemon.json 自带 mirror 列表不受影响。
+14. **K8s Job 名必须含 workflow 名**（2026-11-05，T1.6 队列活体验收拆的 M1 老雷）：旧规则 `mp-<taskID>-<stage>-<job>` 不含 wf 名——两个不同 workflow 的同号任务 + 同名 stage/job = **同一个 K8s Job 名**：幂等 Delete 删掉别人家的 Job、Clean 掀掉别人正在轮询的执行物（实测 t16capA/B 同 task_id=1 同 s1/j 互踩，B 报 `poll k8s job: not found`）。单 wf 时代永远撞不上，队列让跨 wf 并发成为常态后必炸。修法：`mp-<wf>-<taskID>-<stage>-<job>`（wf 名唯一，sanitize+截断 63）+ 回归测试 `TestJobName`。教训：资源命名的唯一性边界要按"并发单元"划，不按"引入顺序"划。
+15. **jq 查含点字面键要用 `["a.b"]`**（2026-11-05，test-mvp1.sh 两连红真凶）：GlobalContext 收割键是 `<job>.<output>` 字面含点（如 `build.MSG`），`jq '.global_context.build.MSG'` 把它当两层路径 → null。正确写法 `.global_context["build.MSG"]`。引擎数据没问题（下游渲染已证），断言先红时先怀疑查询语法。
