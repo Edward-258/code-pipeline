@@ -38,12 +38,20 @@ func newJobCtl(jt *models.JobTask) JobCtl {
 	}
 }
 
-// Run —— T1.4 重试包装：单次尝试失败且 spec.Retry 未用完 → 现场重置再来
-// （对照 Zadig JobSpec.Retry 的 job 级重试位；错误策略的 retry 分支 T1.9 接管这里）。
+// Run —— T1.4 重试包装：单次尝试失败且重试预算未用完 → 现场重置再来。
+// T1.9 预算来源由策略决定：stop=0（显式刹车不重试）/ retry 与未设策略=spec.Retry
+// （旧图纸的 T1.4 语义保持）/ ignore=spec.Retry（先试够再放行）。
 func (K8sJobCtl) Run(tc *taskCtx, jt *models.JobTask) error {
 	maxRetry := 0
 	if jt.Spec != nil {
-		maxRetry = jt.Spec.Retry
+		switch jt.Spec.ErrorPolicy {
+		case models.ErrorPolicyStop:
+			maxRetry = 0
+		case models.ErrorPolicyIgnore, models.ErrorPolicyRetry:
+			maxRetry = jt.Spec.Retry
+		default: // 未设策略（"" / 拼错值）：T1.4 老语义兜底
+			maxRetry = jt.Spec.Retry
+		}
 	}
 	for attempt := 0; ; attempt++ {
 		err := runK8sJobOnce(tc, jt)
@@ -96,7 +104,12 @@ func runK8sJobOnce(tc *taskCtx, jt *models.JobTask) error {
 		return fmt.Errorf("create k8s job: %w", err)
 	}
 
-	deadline := time.Now().Add(jobTimeout)
+	// T1.9 超时 per-job 化（默认 10 分钟 = 原 jobTimeout 常量语义）
+	timeout := jobTimeout
+	if jt.Spec != nil && jt.Spec.TimeoutMinutes > 0 {
+		timeout = time.Duration(jt.Spec.TimeoutMinutes) * time.Minute
+	}
+	deadline := time.Now().Add(timeout)
 	for {
 		// T1.5 取消检查点（每拍）：感知即删 Job（K8s 侧立即停）→ sentinel 上抛
 		if cancelled(tc.cancelCh) {
@@ -122,7 +135,7 @@ func runK8sJobOnce(tc *taskCtx, jt *models.JobTask) error {
 			return fmt.Errorf("exit %s", podExitInfo(tc.client, tc.ns, jt.K8sJobName))
 		}
 		if time.Now().After(deadline) {
-			return fmt.Errorf("timeout after %s", jobTimeout)
+			return fmt.Errorf("timeout after %s", timeout)
 		}
 		time.Sleep(pollInterval)
 	}

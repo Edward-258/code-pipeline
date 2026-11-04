@@ -42,11 +42,21 @@ type Job struct {
 // FreestyleSpec —— freestyle 作业规格：镜像 + 步骤列表
 // 对照 Zadig 的 JobTaskFreestyleSpec（Properties+Steps 简化成两字段）
 type FreestyleSpec struct {
-	Image   string      `bson:"image,omitempty"   json:"image,omitempty"`   // 空 = 按步骤需要选默认（见 engine.buildJob）
-	Scripts []string    `bson:"scripts,omitempty" json:"scripts,omitempty"` // 旧图纸兼容：翻译成隐式 step "main"
-	Steps   []*StepSpec `bson:"steps,omitempty"   json:"steps,omitempty"`  // ⭐ 步骤列表（CI/CD 核心）
-	Retry   int         `bson:"retry,omitempty"   json:"retry,omitempty"`   // 单 job 重试次数（默认 0=不重试，M4）
+	Image          string      `bson:"image,omitempty"           json:"image,omitempty"`           // 空 = 按步骤需要选默认（见 engine.buildJob）
+	Scripts        []string    `bson:"scripts,omitempty"         json:"scripts,omitempty"`         // 旧图纸兼容：翻译成隐式 step "main"
+	Steps          []*StepSpec `bson:"steps,omitempty"           json:"steps,omitempty"`           // ⭐ 步骤列表（CI/CD 核心）
+	Retry          int         `bson:"retry,omitempty"           json:"retry,omitempty"`           // 单 job 重试次数（默认 0=不重试，M4）
+	TimeoutMinutes int         `bson:"timeout_minutes,omitempty" json:"timeout_minutes,omitempty"` // 单 job 超时（分钟，默认 10，T1.9）
+	ErrorPolicy    string      `bson:"error_policy,omitempty"    json:"error_policy,omitempty"`    // 错误策略（默认 stop，T1.9）
 }
+
+// 错误策略（T1.9，对照 Zadig JobErrorPolicy 的 stop/retry；manual-check 砍进 B5 池）。
+// 控制/上报分离：策略只改控制流（刹不刹车、重不重试），失败永远如实上报（job/stage 照红）。
+const (
+	ErrorPolicyStop   = "stop"   // 失败即刹车（默认；未设策略的旧图纸同此 + Retry 预算照用）
+	ErrorPolicyRetry  = "retry"  // 失败按 Retry 预算重试，耗尽即刹车
+	ErrorPolicyIgnore = "ignore" // 失败记红不刹车：串行继续下一个 job、后续 stage 照跑（task 终态由最差者胜如实给 failed）
+)
 
 // StepSpec —— 步骤规格（图纸层，对照 Zadig 的各 StepModel；字段按 Type 取用）
 type StepSpec struct {
