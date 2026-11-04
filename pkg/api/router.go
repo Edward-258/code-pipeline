@@ -20,6 +20,11 @@ func NewRouter() *gin.Engine {
 		api.GET("/workflows/:name", GetWorkflow)
 		api.DELETE("/workflows/:name", DeleteWorkflow)
 
+		// T2.1：部署目标环境（env = 名字 → namespace，deploy job 的靶标）
+		api.POST("/envs", CreateEnv)
+		api.GET("/envs", ListEnvs)
+		api.DELETE("/envs/:name", DeleteEnv)
+
 		// M1：run / task 查询
 		api.POST("/workflows/:name/run", RunWorkflow)
 		api.GET("/tasks/:name", ListTasks)

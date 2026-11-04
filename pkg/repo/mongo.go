@@ -9,13 +9,14 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
-// 三个集合，对照 Zadig 的 147 个集合里最核心的三件：
-// workflow（图纸）/ workflow_task（施工档案）/ counter（发号器）
+// 集合清单：对照 Zadig 的 147 个集合里最核心的几件：
+// workflow（图纸）/ workflow_task（施工档案）/ counter（发号器）/ env（部署目标，T2.1）
 var (
 	Client       *mongo.Client
 	WorkflowColl *mongo.Collection
 	TaskColl     *mongo.Collection
 	CounterColl  *mongo.Collection
+	EnvColl      *mongo.Collection
 )
 
 func Init(uri string) error {
@@ -35,5 +36,6 @@ func Init(uri string) error {
 	WorkflowColl = db.Collection("workflow")
 	TaskColl = db.Collection("workflow_task")
 	CounterColl = db.Collection("counter")
+	EnvColl = db.Collection("env")
 	return nil
 }
