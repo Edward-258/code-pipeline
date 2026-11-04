@@ -18,6 +18,7 @@ var (
 	CounterColl  *mongo.Collection
 	EnvColl      *mongo.Collection
 	CronColl     *mongo.Collection
+	NotifyColl   *mongo.Collection
 )
 
 func Init(uri string) error {
@@ -39,5 +40,6 @@ func Init(uri string) error {
 	CounterColl = db.Collection("counter")
 	EnvColl = db.Collection("env")
 	CronColl = db.Collection("cron")
+	NotifyColl = db.Collection("notify")
 	return nil
 }

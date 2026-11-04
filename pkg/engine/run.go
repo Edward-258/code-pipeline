@@ -384,10 +384,13 @@ func ack(t *models.WorkflowTask) {
 	}
 }
 
-// finish —— 终态收口：置状态、记时间、最后一次 ack
+// finish —— 终态收口：置状态、记时间、最后一次 ack、IM 通知（fire-and-forget）。
+// ⚠️ 通知只挂在这条引擎自然终态路径上；CancelTree 的纯数据收口（T1.5）不走这里
+// （没有 goroutine 在场，通知让位给调用方 API——学习版明确接受这个不对称）。
 func finish(t *models.WorkflowTask, status models.Status, errMsg string) {
 	t.Status = status
 	t.EndTime = time.Now().Unix()
 	t.Error = errMsg
 	ack(t)
+	notifyOnFinish(t)
 }
