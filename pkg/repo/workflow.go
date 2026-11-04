@@ -11,7 +11,10 @@ import (
 	"pipeline/pkg/models"
 )
 
-var ErrNotFound = errors.New("document not found")
+var (
+	ErrNotFound = errors.New("document not found")
+	ErrExists   = errors.New("document already exists") // T2.1：重名资源冲突（env 等）
+)
 
 func CreateWorkflow(w *models.Workflow) error {
 	w.CreatedAt = time.Now()
