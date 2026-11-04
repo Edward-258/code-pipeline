@@ -127,7 +127,9 @@ func runStages(tc *taskCtx, t *models.WorkflowTask) {
 		tc.ack(t)
 		log.Printf("engine: task %s/%d stage %q %s", t.WorkflowName, t.TaskID, st.Name, st.Status)
 
-		if models.StatusStopped(st.Status) {
+		// T1.9：stage 级刹车只认"硬失败"——全靠 ignore 策略失败堆出来的 failed stage
+		// 不刹车，后续 stage 照跑（控制/上报分离：状态如实红，控制流放行）
+		if models.StatusStopped(st.Status) && stageHasHardFailure(st) {
 			markRestSkipped(t, st)
 			finish(t, st.Status, fmt.Sprintf("stage %q %s: %s", st.Name, st.Status, st.Error))
 			log.Printf("engine: task %s/%d %s (braked at stage %q)", t.WorkflowName, t.TaskID, st.Status, st.Name)
@@ -135,8 +137,14 @@ func runStages(tc *taskCtx, t *models.WorkflowTask) {
 		}
 	}
 
-	finish(t, models.StatusPassed, "")
-	log.Printf("engine: task %s/%d passed", t.WorkflowName, t.TaskID)
+	// 尾态不再硬编码 passed：按各 stage 的最差者胜如实收口
+	// （全 passed → passed；含 ignore 失败 → failed，但流水线跑到了终点）
+	statuses := make([]models.Status, 0, len(t.Stages))
+	for _, st := range t.Stages {
+		statuses = append(statuses, st.Status)
+	}
+	finish(t, models.WorstOf(statuses...), "")
+	log.Printf("engine: task %s/%d %s", t.WorkflowName, t.TaskID, t.Status)
 }
 
 // runStage —— stage 内执行策略（对照 Zadig stage.go runStage → CustomStageCtl.Run）：
@@ -179,14 +187,33 @@ func stageGated(st *models.StageTask) bool {
 	return st.ManualExec != nil && st.ManualExec.Enabled && !st.ManualExec.Executed
 }
 
-// stageBraked —— 串行模式下刹车判断：stage 内已有 job 命中 StatusStopped
+// stageBraked —— 串行模式下刹车判断：stage 内存在"硬失败"的 job。
+// T1.9：ignore 策略的失败 job 不算硬失败——记红但继续下一个 job。
 func stageBraked(st *models.StageTask) bool {
 	for _, jt := range st.Jobs {
-		if models.StatusStopped(jt.Status) {
+		if jt.Status == models.StatusFailed && !isIgnorePolicy(jt) {
+			return true
+		}
+		if jt.Status == models.StatusCancelled { // 取消是最高指令，任何策略都刹
 			return true
 		}
 	}
 	return false
+}
+
+// stageHasHardFailure —— stage 级刹车依据（对照 stageBraked 的 stage 间版本）
+func stageHasHardFailure(st *models.StageTask) bool {
+	for _, jt := range st.Jobs {
+		if (jt.Status == models.StatusFailed && !isIgnorePolicy(jt)) || jt.Status == models.StatusCancelled {
+			return true
+		}
+	}
+	return false
+}
+
+// isIgnorePolicy —— 该 job 的失败是否走 ignore 放行
+func isIgnorePolicy(jt *models.JobTask) bool {
+	return jt.Spec != nil && jt.Spec.ErrorPolicy == models.ErrorPolicyIgnore
 }
 
 // runJobTask —— 单个 job 的状态机封装（对照 Zadig jobcontroller.job.Run）。

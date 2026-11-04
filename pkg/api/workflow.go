@@ -93,6 +93,12 @@ func validateWorkflow(wf *models.Workflow) error {
 			if len(jb.Spec.Steps) == 0 && len(jb.Spec.Scripts) == 0 {
 				return errNew("stage[%d].job[%d]: spec.steps or spec.scripts is required", i, j)
 			}
+			// T1.9：错误策略白名单（拼错的 "ignor" 悄悄变 stop 比报错更危险）
+			switch jb.Spec.ErrorPolicy {
+			case "", models.ErrorPolicyStop, models.ErrorPolicyRetry, models.ErrorPolicyIgnore:
+			default:
+				return errNew("stage[%d].job[%d]: unknown error_policy %q (want stop|retry|ignore)", i, j, jb.Spec.ErrorPolicy)
+			}
 			for _, ss := range jb.Spec.Steps {
 				if ss.Name == "" {
 					return errNew("stage[%d].job[%d]: step name is required", i, j)
