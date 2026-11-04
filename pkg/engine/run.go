@@ -202,7 +202,7 @@ func runJobTask(tc *taskCtx, t *models.WorkflowTask, st *models.StageTask, jt *m
 
 	tc.mu.Lock()
 	jt.Status = models.StatusRunning
-	jt.K8sJobName = jobName(t.TaskID, st.Name, jt.Name)
+	jt.K8sJobName = jobName(t.WorkflowName, t.TaskID, st.Name, jt.Name)
 	// T1.3 变量渲染：生成 driver 前把该 job 的 spec 渲染掉（{{.global.x}} / {{.job.key}}）。
 	// 渲染在锁内的原因：BuildVarsCtx 读 t.GlobalContext，并行 stage 里兄弟 goroutine 的
 	// 终态收割会并发写它——读写都圈进同一把锁。渲染失败 = 规格非法，job 直接红，
