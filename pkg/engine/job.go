@@ -3,6 +3,7 @@ package engine
 import (
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 
 	batchv1 "k8s.io/api/batch/v1"
@@ -85,6 +86,7 @@ func buildJob(namespace string, jt *models.JobTask, script string) *batchv1.Job 
 								FieldPath: "status.hostIP", // downward API
 							}}},
 							{Name: "MP_NODE_REGISTRY", Value: "$(MP_NODE_IP):30500"}, // K8s 依赖 env 展开
+							{Name: "MP_ATTEMPT", Value: strconv.Itoa(jt.Retry + 1)},  // T1.4：第几次尝试（重试脚本可确定性分支）
 						},
 						VolumeMounts: mounts,
 					}},

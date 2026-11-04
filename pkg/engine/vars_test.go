@@ -130,6 +130,30 @@ func TestBuildVarsCtx(t *testing.T) {
 	}
 }
 
+// T1.3 贯通链路：上游 job 收割 → BuildVarsCtx → 下游 spec 渲染（纯函数部分）
+func TestHarvestThenRenderDownstream(t *testing.T) {
+	tk := &models.WorkflowTask{GlobalContext: map[string]string{"env": "prod"}}
+	up := &models.JobTask{Name: "build", Outputs: map[string]string{"IMAGE": "reg/app:v1"}}
+	harvestOutputs(tk, up)
+
+	down := &models.FreestyleSpec{
+		Steps: []*models.StepSpec{{Name: "main", Type: models.StepShell, Script: "run {{.build.IMAGE}} --env {{.global.env}}"}},
+	}
+	if err := RenderVars(down, BuildVarsCtx(tk)); err != nil {
+		t.Fatalf("RenderVars: %v", err)
+	}
+	if got := down.Steps[0].Script; got != "run reg/app:v1 --env prod" {
+		t.Errorf("downstream script = %q", got)
+	}
+
+	// 失败 job 不收割
+	tk2 := &models.WorkflowTask{}
+	harvestOutputs(tk2, &models.JobTask{Name: "f", Status: models.StatusFailed})
+	if len(tk2.GlobalContext) != 0 {
+		t.Errorf("failed job outputs must not be harvested: %v", tk2.GlobalContext)
+	}
+}
+
 // jsonEscapeBody 输出必须是合法 JSON 字符串的"引号内转义体"
 func TestJSONEscapeBody(t *testing.T) {
 	cases := map[string]string{
