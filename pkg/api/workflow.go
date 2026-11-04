@@ -82,8 +82,23 @@ func validateWorkflow(wf *models.Workflow) error {
 			if jb.Name == "" {
 				return errNew("stage[%d].job[%d]: name is required", i, j)
 			}
-			if jb.JobType != "freestyle" {
-				return errNew("stage[%d].job[%d]: only freestyle is supported, got %q", i, j, jb.JobType)
+			switch jb.JobType {
+			case models.JobTypeFreestyle: // 兼容历史图纸：空 type 视作 freestyle
+			case models.JobTypeDeploy:
+			case "":
+				jb.JobType = models.JobTypeFreestyle
+			default:
+				return errNew("stage[%d].job[%d]: only freestyle|deploy is supported, got %q", i, j, jb.JobType)
+			}
+			// T2.2：deploy job 必须带 DeploySpec；freestyle 必须带 Spec（历史图纸走默认分支已归位）
+			if jb.JobType == models.JobTypeDeploy {
+				if jb.DeploySpec == nil {
+					return errNew("stage[%d].job[%d]: deploy job requires deploy_spec", i, j)
+				}
+				if jb.DeploySpec.Env == "" || jb.DeploySpec.DeploymentName == "" || jb.DeploySpec.ContainerName == "" || jb.DeploySpec.Image == "" {
+					return errNew("stage[%d].job[%d]: deploy_spec requires env/deployment_name/container_name/image", i, j)
+				}
+				continue
 			}
 			if jb.Spec == nil {
 				return errNew("stage[%d].job[%d]: spec is required", i, j)

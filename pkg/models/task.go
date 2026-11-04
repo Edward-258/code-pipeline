@@ -36,8 +36,9 @@ type JobTask struct {
 	Name       string            `bson:"name"            json:"name"`
 	JobType    string            `bson:"type"            json:"type"`
 	Status     Status            `bson:"status"          json:"status"`
-	K8sJobName string            `bson:"k8s_job_name"    json:"k8s_job_name"` // M1: 真实 K8s Job 名
+	K8sJobName string            `bson:"k8s_job_name"    json:"k8s_job_name"` // freestyle：真实 K8s Job 名；deploy 无执行物（留空语义但字段保留）
 	Spec       *FreestyleSpec    `bson:"spec"            json:"spec"`
+	DeploySpec *DeploySpec       `bson:"deploy_spec,omitempty" json:"deploy_spec,omitempty"` // deploy job 专用（T2.2）
 	Steps      []*StepTask       `bson:"steps,omitempty" json:"steps,omitempty"` // ⭐ 分界面的叶子层
 	Outputs    map[string]string `bson:"outputs,omitempty" json:"outputs,omitempty"` // M4
 	Error      string            `bson:"error,omitempty" json:"error,omitempty"`

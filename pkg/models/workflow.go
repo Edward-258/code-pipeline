@@ -34,9 +34,31 @@ type ManualExec struct {
 
 // Job —— 任务单元（对照 Zadig Job）
 type Job struct {
-	Name    string         `bson:"name" json:"name"`
-	JobType string         `bson:"type" json:"type"` // 学习版恒为 freestyle
-	Spec    *FreestyleSpec `bson:"spec" json:"spec"`
+	Name       string      `bson:"name" json:"name"`
+	JobType    string      `bson:"type" json:"type"` // freestyle（跑步骤）| deploy（patch 部署，T2.2）
+	Spec       *FreestyleSpec `bson:"spec" json:"spec"` // freestyle 专用；deploy 时可为 nil
+	DeploySpec *DeploySpec `bson:"deploy_spec,omitempty" json:"deploy_spec,omitempty"` // deploy 专用
+}
+
+// JobType 常量（对照 Zadig 47 种 Job 里我们只长两种）
+const (
+	JobTypeFreestyle = "freestyle"
+	JobTypeDeploy    = "deploy" // CD 本体：引擎直接 patch Deployment（不变量3：不起 K8s Job 不挂 sock）
+)
+
+// DeploySpec —— 部署作业规格（T2.2，对照 Zadig job_deploy.go 的极简版）：
+// 目标 env（=namespace）+ Deployment 名 + 容器名 + 新镜像（可 {{.jobName.output}} 引用上游）。
+type DeploySpec struct {
+	Env            string `bson:"env"                 json:"env"`             // env 集合里的名字（T2.1）→ 解析出 namespace
+	DeploymentName string `bson:"deployment_name"     json:"deployment_name"`
+	ContainerName  string `bson:"container_name"      json:"container_name"`
+	Image          string `bson:"image"               json:"image"`
+	WaitRollout    *bool  `bson:"wait_rollout,omitempty" json:"wait_rollout,omitempty"` // 默认 true；自举发布自己更新自己时设 false 防绞杀
+}
+
+// ShouldWaitRollout —— WaitRollout 缺省 true 的取值助手
+func (d *DeploySpec) ShouldWaitRollout() bool {
+	return d.WaitRollout == nil || *d.WaitRollout
 }
 
 // FreestyleSpec —— freestyle 作业规格：镜像 + 步骤列表

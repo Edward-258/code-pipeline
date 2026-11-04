@@ -18,9 +18,12 @@ import (
 )
 
 const (
-	pollInterval = 2 * time.Second  // 决断 #2：轮询不上 watch，节奏对照 Zadig
-	jobTimeout   = 10 * time.Minute // 兜底超时
+	jobTimeout = 10 * time.Minute // 兜底超时
 )
+
+// pollInterval —— 轮询节奏（决断 #2：轮询不上 watch）。var 而非 const：单测缩短节拍，
+// 别让表测陪跑 2s 一拍的真节奏。
+var pollInterval = 2 * time.Second
 
 // taskCtx —— 任务运行期共享环境。
 // mu 保 ack 互斥：并行 job 各自回写时，整棵树的字段写 + BSON 序列化 + ReplaceOne
@@ -235,14 +238,25 @@ func runJobTask(tc *taskCtx, t *models.WorkflowTask, st *models.StageTask, jt *m
 
 	tc.mu.Lock()
 	jt.Status = models.StatusRunning
-	jt.K8sJobName = jobName(t.WorkflowName, t.TaskID, st.Name, jt.Name)
-	// T1.3 变量渲染：生成 driver 前把该 job 的 spec 渲染掉（{{.global.x}} / {{.job.key}}）。
+	if jt.JobType != models.JobTypeDeploy { // deploy 无执行物：不占用 K8s Job 名（Recover 泄漏清理按名删，不能给它发号）
+		jt.K8sJobName = jobName(t.WorkflowName, t.TaskID, st.Name, jt.Name)
+	}
+	// T1.3/T2.2 变量渲染：生成 driver 前（freestyle）/patch 前（deploy）把该 job 的
+	// spec 渲染掉（{{.global.x}} / {{.job.key}}——deploy 的 image 可引用上游 output）。
 	// 渲染在锁内的原因：BuildVarsCtx 读 t.GlobalContext，并行 stage 里兄弟 goroutine 的
 	// 终态收割会并发写它——读写都圈进同一把锁。渲染失败 = 规格非法，job 直接红，
 	// 不浪费一次 K8s 调度（与 GenerateDriverScript 的生成期报错同一哲学）。
-	if err := RenderVars(jt.Spec, BuildVarsCtx(t)); err != nil {
+	ctx := BuildVarsCtx(t)
+	var renderErr error
+	if jt.Spec != nil {
+		renderErr = RenderVars(jt.Spec, ctx)
+	}
+	if renderErr == nil && jt.DeploySpec != nil {
+		renderErr = RenderVars(jt.DeploySpec, ctx)
+	}
+	if renderErr != nil {
 		jt.Status = models.StatusFailed
-		jt.Error = fmt.Sprintf("render vars: %v", err)
+		jt.Error = fmt.Sprintf("render vars: %v", renderErr)
 		ack(t)
 		tc.mu.Unlock()
 		return
