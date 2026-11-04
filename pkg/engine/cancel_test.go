@@ -81,3 +81,32 @@ func TestCancelledNonBlocking(t *testing.T) {
 		t.Fatal("cancelled() blocked on open chan")
 	}
 }
+
+// TestApprovalSatisfied —— T3.4 审批策略真值表：any/空名单/all
+func TestApprovalSatisfied(t *testing.T) {
+	// 空名单 + 默认策略（老图纸）：一条审批即过
+	me := &models.ManualExec{Approvals: []*models.Approval{{Approver: "alice"}}}
+	if !ApprovalSatisfied(me) {
+		t.Error("empty-roster any policy should pass with one approval")
+	}
+	// 无记录：不过
+	if ApprovalSatisfied(&models.ManualExec{}) {
+		t.Error("no approvals must not satisfy")
+	}
+	// any：任一人批即过
+	me = &models.ManualExec{Policy: models.ApprovalPolicyAny,
+		Approvers: []string{"alice", "bob"}, Approvals: []*models.Approval{{Approver: "bob"}}}
+	if !ApprovalSatisfied(me) {
+		t.Error("any policy should pass with one of the approvers")
+	}
+	// all：缺一人不过，到齐才过
+	me = &models.ManualExec{Policy: models.ApprovalPolicyAll,
+		Approvers: []string{"alice", "bob"}, Approvals: []*models.Approval{{Approver: "alice"}}}
+	if ApprovalSatisfied(me) {
+		t.Error("all policy must wait for every approver")
+	}
+	me.Approvals = append(me.Approvals, &models.Approval{Approver: "bob"})
+	if !ApprovalSatisfied(me) {
+		t.Error("all policy should pass when roster complete")
+	}
+}

@@ -22,8 +22,13 @@ func BuildTask(wf *models.Workflow, taskID int64) *models.WorkflowTask {
 			Status:   models.StatusCreated,
 		}
 		if st.ManualExec != nil {
-			// 运行时副本：Executed 归零（M3 放行时在这里翻 true）
-			stt.ManualExec = &models.ManualExec{Enabled: st.ManualExec.Enabled}
+			// 运行时副本：Executed 归零（M3 放行时在这里翻 true）；
+			// T3.4 审批配置随快照走（approvers/policy 是闸门语义的一部分，丢了 all 就变 any——活体验收抓的）
+			stt.ManualExec = &models.ManualExec{
+				Enabled:   st.ManualExec.Enabled,
+				Approvers: append([]string(nil), st.ManualExec.Approvers...),
+				Policy:    st.ManualExec.Policy,
+			}
 		}
 		for _, jb := range st.Jobs {
 			var specCopy models.FreestyleSpec
@@ -103,6 +108,8 @@ func SnapshotWorkflow(wf *models.Workflow) *models.Workflow {
 		s := &models.Stage{Name: st.Name, Parallel: st.Parallel}
 		if st.ManualExec != nil {
 			me := *st.ManualExec
+			me.Approvals = nil // 审批记录属于某次运行，图纸快照不带
+			me.Executed = false
 			s.ManualExec = &me
 		}
 		for _, jb := range st.Jobs {

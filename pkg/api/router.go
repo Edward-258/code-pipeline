@@ -54,6 +54,8 @@ func NewRouter() *gin.Engine {
 		api.GET("/tasks/:name/:id/log", GetTaskLog)
 		// M3：放行暂停的 stage（durable 暂停的灵魂端点）
 		api.POST("/tasks/:name/:id/stages/:stage/release", ReleaseStage)
+		// T3.4：原生审批（pause 闸门的多人版，any/all 策略；老图纸无 approvers 时等价 release）
+		api.POST("/tasks/:name/:id/approve", ApproveTask)
 	}
 	return r
 }

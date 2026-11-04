@@ -33,12 +33,31 @@ type Stage struct {
 	Jobs       []*Job      `bson:"jobs"                 json:"jobs"`
 }
 
-// ManualExec —— 手动分步执行（对照 Zadig stage.ManualExec）
+// ManualExec —— 手动分步执行（对照 Zadig stage.ManualExec；T3.4 扩展原生审批）
 // Enabled: 停下来等人;  Executed: 人已经放行过;  NotificationSent: 通知去重（学习版占位）
+// Approvers: 审批人名单（自由文本，不做身份系统——硬约束 #2）；空名单 = 一次审批即放行
+// Policy: any（默认，任一人批即过）| all（全员到齐）
+// Approvals: 已收到的审批记录（谁、说了什么、何时）
 type ManualExec struct {
-	Enabled          bool `bson:"enabled"           json:"enabled"`
-	Executed         bool `bson:"executed"          json:"executed"`
-	NotificationSent bool `bson:"notification_sent" json:"notification_sent"`
+	Enabled          bool       `bson:"enabled"           json:"enabled"`
+	Executed         bool       `bson:"executed"          json:"executed"`
+	NotificationSent bool       `bson:"notification_sent" json:"notification_sent"`
+	Approvers        []string   `bson:"approvers,omitempty" json:"approvers,omitempty"`
+	Policy           string     `bson:"policy,omitempty"    json:"policy,omitempty"`
+	Approvals        []*Approval `bson:"approvals,omitempty" json:"approvals,omitempty"`
+}
+
+// 审批策略常量（对照 Zadig native approve 的 any/all）
+const (
+	ApprovalPolicyAny = "any"
+	ApprovalPolicyAll = "all"
+)
+
+// Approval —— 单条审批记录
+type Approval struct {
+	Approver string `bson:"approver" json:"approver"`
+	Comment  string `bson:"comment,omitempty" json:"comment,omitempty"`
+	Time     int64  `bson:"time" json:"time"`
 }
 
 // Job —— 任务单元（对照 Zadig Job）
