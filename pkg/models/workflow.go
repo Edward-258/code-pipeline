@@ -11,8 +11,17 @@ type Workflow struct {
 	Name          string            `bson:"_id"       json:"name"` // 图纸名即主键
 	Stages        []*Stage          `bson:"stages"    json:"stages"`
 	GlobalContext map[string]string `bson:"global_context,omitempty" json:"global_context,omitempty"` // 图纸级变量初始值（开跑时拷进 task.GlobalContext，M4）
+	Webhooks      []*WebhookConfig  `bson:"webhooks,omitempty" json:"webhooks,omitempty"` // T3.2：git push 触发配置（可多条）
 	CreatedAt     time.Time         `bson:"created_at" json:"created_at"`
 	UpdatedAt     time.Time         `bson:"updated_at" json:"updated_at"`
+}
+
+// WebhookConfig —— git push 触发规则（T3.2，对照 Zadig 的 webhook 管理砍到两条字段）：
+// repo 全名或 URL 尾段匹配 + 分支匹配 + HMAC-SHA256 对称密钥（secret 明文同 chart values 档案）。
+type WebhookConfig struct {
+	Repo   string `bson:"repo"   json:"repo"`   // owner/repo 或完整 https URL（.git 尾缀忽略）
+	Branch string `bson:"branch" json:"branch"` // refs/heads/<branch> 的 <branch>
+	Secret string `bson:"secret,omitempty" json:"secret,omitempty"` // 空 = 不验签（学习版明确接受）
 }
 
 // Stage —— 阶段（对照 Zadig WorkflowStage）
