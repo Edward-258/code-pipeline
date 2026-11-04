@@ -379,26 +379,40 @@ func buildTask(wf *models.Workflow, taskID int64) *models.WorkflowTask {
 			stt.ManualExec = &models.ManualExec{Enabled: st.ManualExec.Enabled}
 		}
 		for _, jb := range st.Jobs {
-			spec := *jb.Spec // spec 浅拷贝 + steps 逐个深拷贝（快照绝不共享指针）
-			if len(jb.Spec.Steps) > 0 {
-				spec.Steps = make([]*models.StepSpec, len(jb.Spec.Steps))
-				for i, ss := range jb.Spec.Steps {
-					cp := *ss
-					spec.Steps[i] = &cp
+			var specCopy models.FreestyleSpec
+			if jb.Spec != nil { // deploy job 无 freestyle spec，跳过
+				specCopy = *jb.Spec // 浅拷贝 + steps 逐个深拷贝（快照绝不共享指针）
+				if len(jb.Spec.Steps) > 0 {
+					specCopy.Steps = make([]*models.StepSpec, len(jb.Spec.Steps))
+					for i, ss := range jb.Spec.Steps {
+						cp := *ss
+						specCopy.Steps[i] = &cp
+					}
 				}
 			}
+			var ds *models.DeploySpec
+			if jb.DeploySpec != nil {
+				cp := *jb.DeploySpec // 值结构浅拷贝即深拷贝（全标量字段）
+				ds = &cp
+			}
 			// 步骤翻译：图纸 steps → 运行时 StepTask（与 EffectiveSteps 同源：旧图纸 Scripts → 隐式 "main"）
-			eff := spec.EffectiveSteps()
-			steps := make([]*models.StepTask, len(eff))
-			for i, ss := range eff {
-				steps[i] = &models.StepTask{Name: ss.Name, Type: ss.Type, Status: models.StatusCreated}
+			var specPtr *models.FreestyleSpec
+			var steps []*models.StepTask
+			if jb.Spec != nil {
+				specPtr = &specCopy
+				eff := specCopy.EffectiveSteps()
+				steps = make([]*models.StepTask, len(eff))
+				for i, ss := range eff {
+					steps[i] = &models.StepTask{Name: ss.Name, Type: ss.Type, Status: models.StatusCreated}
+				}
 			}
 			stt.Jobs = append(stt.Jobs, &models.JobTask{
-				Name:    jb.Name,
-				JobType: jb.JobType,
-				Status:  models.StatusCreated,
-				Spec:    &spec,
-				Steps:   steps,
+				Name:       jb.Name,
+				JobType:    jb.JobType,
+				Status:     models.StatusCreated,
+				Spec:       specPtr,
+				DeploySpec: ds,
+				Steps:      steps,
 			})
 		}
 		stages = append(stages, stt)
@@ -445,15 +459,27 @@ func snapshotWorkflow(wf *models.Workflow) *models.Workflow {
 			s.ManualExec = &me
 		}
 		for _, jb := range st.Jobs {
-			spec := *jb.Spec
-			if len(jb.Spec.Steps) > 0 {
-				spec.Steps = make([]*models.StepSpec, len(jb.Spec.Steps))
-				for i, ss := range jb.Spec.Steps {
-					cp := *ss
-					spec.Steps[i] = &cp
+			var specCopy models.FreestyleSpec
+			if jb.Spec != nil { // deploy job 无 freestyle spec，跳过
+				specCopy = *jb.Spec
+				if len(jb.Spec.Steps) > 0 {
+					specCopy.Steps = make([]*models.StepSpec, len(jb.Spec.Steps))
+					for i, ss := range jb.Spec.Steps {
+						cp := *ss
+						specCopy.Steps[i] = &cp
+					}
 				}
 			}
-			s.Jobs = append(s.Jobs, &models.Job{Name: jb.Name, JobType: jb.JobType, Spec: &spec})
+			var ds *models.DeploySpec
+			if jb.DeploySpec != nil {
+				cp := *jb.DeploySpec
+				ds = &cp
+			}
+			var specPtr *models.FreestyleSpec
+			if jb.Spec != nil {
+				specPtr = &specCopy
+			}
+			s.Jobs = append(s.Jobs, &models.Job{Name: jb.Name, JobType: jb.JobType, Spec: specPtr, DeploySpec: ds})
 		}
 		out.Stages = append(out.Stages, s)
 	}

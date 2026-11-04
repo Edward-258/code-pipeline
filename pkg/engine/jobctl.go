@@ -33,6 +33,8 @@ type K8sJobCtl struct{}
 
 func newJobCtl(jt *models.JobTask) JobCtl {
 	switch jt.JobType {
+	case models.JobTypeDeploy:
+		return DeployJobCtl{}
 	default:
 		return K8sJobCtl{}
 	}
