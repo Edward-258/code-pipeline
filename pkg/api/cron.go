@@ -8,7 +8,6 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"pipeline/pkg/engine"
-	"pipeline/pkg/engine/cron"
 	"pipeline/pkg/models"
 	"pipeline/pkg/repo"
 )
@@ -99,7 +98,7 @@ func triggerCron(c *gin.Context) {
 		return
 	}
 	// 手动点火无视 Enabled（验收/调试用途）；但表达式必须合法——坏表达式在这里当场暴露
-	if _, err := cron.Match(cr.Crontab, time.Now()); err != nil {
+	if _, err := models.CronMatch(cr.Crontab, time.Now()); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
@@ -118,7 +117,7 @@ func validateCron(cr *models.Cron) error {
 	if cr.WorkflowName == "" {
 		return fmt.Errorf("workflow_name is required")
 	}
-	if _, err := cron.Match(cr.Crontab, time.Now()); err != nil {
+	if _, err := models.CronMatch(cr.Crontab, time.Now()); err != nil {
 		return fmt.Errorf("bad crontab: %v", err)
 	}
 	return nil

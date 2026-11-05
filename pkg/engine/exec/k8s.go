@@ -102,7 +102,7 @@ func runK8sJobOnce(c *Ctx, jt *models.JobTask) error {
 	deadline := time.Now().Add(timeout)
 	for {
 		// T1.5 取消检查点（每拍）：感知即删 Job（K8s 侧立即停）→ sentinel 上抛
-		if cancel.Fired(c.CancelCh) {
+		if cancel.Signalled(c.CancelCh) {
 			_ = c.Client.BatchV1().Jobs(c.NS).Delete(context.TODO(), jt.K8sJobName, k8s.DeleteOpts())
 			return cancel.ErrCancelled
 		}

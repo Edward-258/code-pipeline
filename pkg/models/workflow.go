@@ -147,6 +147,30 @@ func (s *FreestyleSpec) EffectiveSteps() []*StepSpec {
 	return nil
 }
 
+// NeedsRunner —— 该 job 的步骤是否需要 runner 宿体镜像（git/docker CLI/curl 是
+// busybox 没有的工具——archive 上传依赖 curl，busybox wget --post-file 会截断 POST
+// body，§9.17）。"哪种步骤需要什么执行环境"是步骤域的知识，归 models；
+// k8s.BuildJob 只消费判定结果选镜像，不再嗅探步骤类型。
+func (s *FreestyleSpec) NeedsRunner() bool {
+	for _, st := range s.EffectiveSteps() {
+		if st.Type == StepGit || st.Type == StepDockerBuild || st.Type == StepArchive {
+			return true
+		}
+	}
+	return false
+}
+
+// WantsDockerSock —— 该 job 是否需要挂宿主 docker.sock（docker_build 步骤遥控节点
+// daemon 构建，决断 #5；≈节点 root，仅限学习集群）。
+func (s *FreestyleSpec) WantsDockerSock() bool {
+	for _, st := range s.EffectiveSteps() {
+		if st.Type == StepDockerBuild {
+			return true
+		}
+	}
+	return false
+}
+
 // Satisfied —— T3.4 审批策略判定（纯函数，原 engine.ApprovalSatisfied 随模块化迁入）：
 //   any（默认）或空名单：凑够 ≥1 条即过
 //   all：Approvers 里每个人都得有一条记录（同名去重看 Approvals）

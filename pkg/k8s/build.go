@@ -42,10 +42,11 @@ func JobName(wfName string, taskID int64, stage, job string) string {
 //	引擎 Deployment 挂的 imagePullSecrets 不会继承给运行时创建的 Job
 func BuildJob(namespace string, t *models.WorkflowTask, jt *models.JobTask, script string) *batchv1.Job {
 	spec := jt.Spec
+	cfg := config.Load() // 单次装配（RunnerImage/EngineURL 都从这里出）
 	image := spec.Image
 	if image == "" {
-		if jobNeedsRunner(spec) {
-			image = config.Load().RunnerImage // env RUNNER_IMAGE / chart values runner.image
+		if spec.NeedsRunner() { // 步骤域的判定（models），这里只消费选镜像
+			image = cfg.RunnerImage // env RUNNER_IMAGE / chart values runner.image
 		} else {
 			image = "busybox"
 		}
@@ -55,7 +56,7 @@ func BuildJob(namespace string, t *models.WorkflowTask, jt *models.JobTask, scri
 		EmptyDir: &corev1.EmptyDirVolumeSource{}, // 步骤间的工作区（git 检出 → build 上下文 → 报告）
 	}}}
 	mounts := []corev1.VolumeMount{{Name: "workspace", MountPath: "/workspace"}}
-	if jobWantsDockerSock(spec) {
+	if spec.WantsDockerSock() {
 		// 决断 #5：fat 路线——挂宿主 docker.sock 遥控节点 daemon。≈节点 root，仅限学习集群
 		volumes = append(volumes, corev1.Volume{Name: "docker-sock", VolumeSource: corev1.VolumeSource{
 			HostPath: &corev1.HostPathVolumeSource{Path: "/var/run/docker.sock", Type: ptr.To(corev1.HostPathSocket)},
@@ -98,7 +99,7 @@ func BuildJob(namespace string, t *models.WorkflowTask, jt *models.JobTask, scri
 							}}},
 							{Name: "MP_NODE_REGISTRY", Value: "$(MP_NODE_IP):30500"}, // K8s 依赖 env 展开
 							{Name: "MP_ATTEMPT", Value: strconv.Itoa(jt.Retry + 1)},  // T1.4：第几次尝试（重试脚本可确定性分支）
-							{Name: "MP_ENGINE_URL", Value: config.Load().EngineURL},  // T2.4：archive 上传目标
+							{Name: "MP_ENGINE_URL", Value: cfg.EngineURL},  // T2.4：archive 上传目标
 							{Name: "MP_TASK_WF", Value: t.WorkflowName},              // T2.4：artifact 上传 URL 组装
 							{Name: "MP_TASK_ID", Value: strconv.FormatInt(t.TaskID, 10)},
 						},
@@ -111,22 +112,3 @@ func BuildJob(namespace string, t *models.WorkflowTask, jt *models.JobTask, scri
 	}
 }
 
-// jobNeedsRunner —— git/docker_build/archive 步骤需要 busybox 没有的工具
-// （git、docker CLI、curl——archive 上传依赖 curl，busybox wget --post-file 会截断 POST body）
-func jobNeedsRunner(spec *models.FreestyleSpec) bool {
-	for _, s := range spec.EffectiveSteps() {
-		if s.Type == models.StepGit || s.Type == models.StepDockerBuild || s.Type == models.StepArchive {
-			return true
-		}
-	}
-	return false
-}
-
-func jobWantsDockerSock(spec *models.FreestyleSpec) bool {
-	for _, s := range spec.EffectiveSteps() {
-		if s.Type == models.StepDockerBuild {
-			return true
-		}
-	}
-	return false
-}

@@ -13,7 +13,7 @@ import (
 //
 // 学习版的两条取消路径（不变量：任何非终态任务，cancel 都要在一拍轮询内送进终态）：
 //  1. 活着的任务（有看护 goroutine）：close(chan) 广播信号，看护人在 stage 边界和
-//     K8s 轮询循环的每一拍感知 → 删 Job → 树内收口 Fired。响应 ≤ pollInterval。
+//     K8s 轮询循环的每一拍感知 → 删 Job → 树内收口 cancelled。响应 ≤ pollInterval。
 //  2. 没有看护人的任务（pause 稳态 / queued / 引擎重启后 Recover 宣判过的幸存者）：
 //     注册表里没号，API 侧直接 Tree 收口 Mongo——pause 没有 goroutine 这正是
 //     M3 的设计（暂停=落库+goroutine 退出），取消自然也走纯数据路径。
@@ -35,7 +35,7 @@ type cancelEntry struct {
 }
 
 // ErrCancelled —— 看护人感知到取消信号的 sentinel（K8s 轮询循环返回，runJobTask 翻译成树内状态）
-var ErrCancelled = errors.New("task Fired")
+var ErrCancelled = errors.New("task cancelled")
 
 // Register —— Run 入口注册取消信号；返回 (信号 chan, 注销函数)。
 // chan 由这里交出去而不是让调用方回查 map：map 的读写都必须在锁内。
@@ -64,8 +64,8 @@ func Request(taskKey string) bool {
 	return ok
 }
 
-// Fired —— 看护人侧非阻塞检查（stage 边界 / 轮询循环每拍）
-func Fired(ch <-chan struct{}) bool {
+// Signalled —— 看护人侧非阻塞检查（stage 边界 / 轮询循环每拍）
+func Signalled(ch <-chan struct{}) bool {
 	select {
 	case <-ch:
 		return true
@@ -74,9 +74,9 @@ func Fired(ch <-chan struct{}) bool {
 	}
 }
 
-// Tree —— 纯数据收口（无看护人路径）：树内所有非终态节点翻 Fired。
+// Tree —— 纯数据收口（无看护人路径）：树内所有非终态节点翻 cancelled。
 // 对照 Zadig cancel 的 mongo 标记半边；资源半边（删 Job）对 pause/queued 不存在，
-// 对孤儿由 Recover 兜过。zadig 思想：Fired 是最差终态（权重 7），树内不掺假。
+// 对孤儿由 Recover 兜过。zadig 思想：cancelled 是最差终态（权重 7），树内不掺假。
 func Tree(t *models.WorkflowTask) {
 	now := time.Now().Unix()
 	for _, st := range t.Stages {
@@ -101,6 +101,6 @@ func Tree(t *models.WorkflowTask) {
 	}
 	t.Status = models.StatusCancelled
 	t.EndTime = now
-	t.Error = "Fired by user"
+	t.Error = "cancelled by user"
 	log.Printf("engine: task %s cancelled (no caretaker, data-only)", t.ID)
 }

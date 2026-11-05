@@ -1,13 +1,13 @@
-package cron
+package models
 
 import (
 	"testing"
 	"time"
 )
 
-// Match 表测（T3.1）：全星 / 步进 / 范围 / 列表 / 星期日双写 / 越界报错。
+// CronMatch 表测（T3.1）：全星 / 步进 / 范围 / 列表 / 星期日双写 / 越界报错。
 // 样本时刻 = 2026-11-05（周四=4）03:07。
-func TestMatchCrontab(t *testing.T) {
+func TestCronMatch(t *testing.T) {
 	tm := time.Date(2026, 11, 5, 3, 7, 30, 0, time.Local)
 
 	tests := []struct {
@@ -31,28 +31,28 @@ func TestMatchCrontab(t *testing.T) {
 		{"0 0 * * 7", false},      // 7≡周日 双写，周四不中
 	}
 	for _, tt := range tests {
-		got, err := Match(tt.expr, tm)
+		got, err := CronMatch(tt.expr, tm)
 		if err != nil {
-			t.Errorf("Match(%q) unexpected error: %v", tt.expr, err)
+			t.Errorf("CronMatch(%q) unexpected error: %v", tt.expr, err)
 			continue
 		}
 		if got != tt.want {
-			t.Errorf("Match(%q) = %v, want %v", tt.expr, got, tt.want)
+			t.Errorf("CronMatch(%q) = %v, want %v", tt.expr, got, tt.want)
 		}
 	}
 
 	// 星期日双写命中：2026-11-01 是周日 00:00
 	sun := time.Date(2026, 11, 1, 0, 0, 0, 0, time.Local)
 	for _, expr := range []string{"0 0 * * 0", "0 0 * * 7"} {
-		if ok, err := Match(expr, sun); err != nil || !ok {
+		if ok, err := CronMatch(expr, sun); err != nil || !ok {
 			t.Errorf("sunday should match %q (err=%v)", expr, err)
 		}
 	}
 
 	// 非法表达式必须报错（坏 cron 当场暴露，不许变哑弹）
 	for _, expr := range []string{"60 * * * *", "* * * *", "a * * * *", "* * * * * *", "1-5 * * * * *"} {
-		if _, err := Match(expr, tm); err == nil {
-			t.Errorf("Match(%q) should error", expr)
+		if _, err := CronMatch(expr, tm); err == nil {
+			t.Errorf("CronMatch(%q) should error", expr)
 		}
 	}
 }
