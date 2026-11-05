@@ -146,3 +146,27 @@ func (s *FreestyleSpec) EffectiveSteps() []*StepSpec {
 	}
 	return nil
 }
+
+// Satisfied —— T3.4 审批策略判定（纯函数，原 engine.ApprovalSatisfied 随模块化迁入）：
+//   any（默认）或空名单：凑够 ≥1 条即过
+//   all：Approvers 里每个人都得有一条记录（同名去重看 Approvals）
+// 这里的"名单为空 + any"就是老图纸的原 release 语义——approve 端点对老图纸
+// 退化成 release，两套端点一套语义。
+func (me *ManualExec) Satisfied() bool {
+	if me == nil || len(me.Approvals) == 0 {
+		return false
+	}
+	if me.Policy == ApprovalPolicyAll {
+		got := map[string]bool{}
+		for _, a := range me.Approvals {
+			got[a.Approver] = true
+		}
+		for _, name := range me.Approvers {
+			if !got[name] {
+				return false
+			}
+		}
+		return true
+	}
+	return true // any / 未设策略 / 空名单：有一条就够
+}

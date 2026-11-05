@@ -80,7 +80,7 @@ func ApproveTask(c *gin.Context) {
 	me.Approvals = append(me.Approvals, &models.Approval{Approver: body.Approver, Comment: body.Comment, Time: time.Now().Unix()})
 recorded:
 
-	if !engine.ApprovalSatisfied(me) {
+	if !st.ManualExec.Satisfied() {
 		if err := repo.UpdateTask(t); err != nil { // 未满足也要落库（审批记录是档案）
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return

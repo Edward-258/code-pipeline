@@ -1,4 +1,4 @@
-package engine
+package notify
 
 import (
 	"bytes"
@@ -20,8 +20,8 @@ import (
 // 任务终态（engine.finish 落档时）→ fire-and-forget goroutine POST IM 机器人，
 // 重试 1 次；失败只记日志——通知不阻塞不回滚任务状态（上报是尽力而为）。
 
-// notifyOnFinish —— finish() 的挂点：拉配置、起 goroutine，绝不拖慢终态收口。
-func notifyOnFinish(t *models.WorkflowTask) {
+// NotifyOnFinish —— finish() 的挂点：拉配置、起 goroutine，绝不拖慢终态收口。
+func NotifyOnFinish(t *models.WorkflowTask) {
 	cfgs, err := repo.ListNotifies()
 	if err != nil {
 		log.Printf("notify: list configs: %v", err)
@@ -60,7 +60,7 @@ var sendNotify = func(cfg *models.NotifyConfig, t *models.WorkflowTask) error {
 		})
 	case models.NotifyDingTalk:
 		payload, _ = json.Marshal(map[string]any{
-			"msgtype": "markdown",
+			"msgtype":  "markdown",
 			"markdown": map[string]string{"title": title, "text": text},
 		})
 	default:
@@ -94,8 +94,9 @@ var sendNotify = func(cfg *models.NotifyConfig, t *models.WorkflowTask) error {
 var notifyHTTP = &http.Client{Timeout: 10 * time.Second}
 
 // appendSignature —— 双平台加签（秘钥算法两家不同，别记混）：
-//   飞书：HMAC-SHA256(key = "<ts>\n<secret>", msg = "") → base64，参数 ?timestamp=&sign=
-//   钉钉：HMAC-SHA256(key = secret, msg = "<ts>\n<secret>") → base64+urlencode，同款参数
+//
+//	飞书：HMAC-SHA256(key = "<ts>\n<secret>", msg = "") → base64，参数 ?timestamp=&sign=
+//	钉钉：HMAC-SHA256(key = secret, msg = "<ts>\n<secret>") → base64+urlencode，同款参数
 func appendSignature(target, typ, secret string, ts int64) string {
 	var sign string
 	switch typ {

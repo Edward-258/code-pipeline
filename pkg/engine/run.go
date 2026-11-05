@@ -1,39 +1,32 @@
 package engine
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"log"
-	"strings"
 	"sync"
 	"time"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 
 	"pipeline/pkg/config"
+	"pipeline/pkg/engine/cancel"
+	"pipeline/pkg/engine/exec"
+	"pipeline/pkg/engine/notify"
+	"pipeline/pkg/k8s"
 	"pipeline/pkg/models"
 	"pipeline/pkg/repo"
 )
-
-const (
-	jobTimeout = 10 * time.Minute // 兜底超时
-)
-
-// pollInterval —— 轮询节奏（决断 #2：轮询不上 watch）。var 而非 const：单测缩短节拍，
-// 别让表测陪跑 2s 一拍的真节奏。
-var pollInterval = 2 * time.Second
 
 // taskCtx —— 任务运行期共享环境。
 // mu 保 ack 互斥：并行 job 各自回写时，整棵树的字段写 + BSON 序列化 + ReplaceOne
 // 必须串行（Zadig 同款问题同款解：jobcontroller 并行跑 job，ack 全量写）。
 type taskCtx struct {
-	client    kubernetes.Interface
-	ns        string
-	t         *models.WorkflowTask // ack 的对象（整树写回的目标）
-	mu        sync.Mutex
-	cancelCh  <-chan struct{} // T1.5 取消信号（close 广播；nil = 永不触发）
+	client   kubernetes.Interface
+	ns       string
+	t        *models.WorkflowTask // ack 的对象（整树写回的目标）
+	mu       sync.Mutex
+	cancelCh <-chan struct{} // T1.5 取消信号（close 广播；nil = 永不触发）
 }
 
 // ack —— 互斥版整树写回（并行场景下多 goroutine 共用）
@@ -55,11 +48,11 @@ func Run(t *models.WorkflowTask) {
 	}()
 
 	// T1.5：注册取消信号，goroutine 退出即注销（注册表只装活人）
-	cancelCh, unregister := registerCancel(t.ID)
+	cancelCh, unregister := cancel.Register(t.ID)
 	defer unregister()
 
 	cfg := config.Load()
-	client, err := NewClient(cfg.K8SContext)
+	client, err := k8s.NewClient(cfg.K8SContext)
 	if err != nil {
 		finish(t, models.StatusFailed, err.Error())
 		return
@@ -87,7 +80,7 @@ func runStages(tc *taskCtx, t *models.WorkflowTask) {
 
 		// T1.5 取消检查点（stage 边界）：取消信号在 stage 间隙到的，当场收口——
 		// 本 stage 置 skipped，后续 stage 一并 skipped，任务 cancelled
-		if cancelled(tc.cancelCh) {
+		if cancel.Fired(tc.cancelCh) {
 			st.Status = models.StatusSkipped
 			markRestSkipped(t, st)
 			finish(t, models.StatusCancelled, "cancelled by user")
@@ -153,6 +146,7 @@ func runStages(tc *taskCtx, t *models.WorkflowTask) {
 // runStage —— stage 内执行策略（对照 Zadig stage.go runStage → CustomStageCtl.Run）：
 //   - Parallel=true：jobs 全员齐飞（goroutine + WaitGroup），等全部落地再聚合
 //   - Parallel=false：逐个放行；任一 job 命中刹车态 → 剩余未启动的直接 skipped
+//
 // 刹车语义：不再起新的，已在跑的让它跑完（并行模式天然如此：WaitGroup 等全员）。
 func runStage(tc *taskCtx, t *models.WorkflowTask, st *models.StageTask) {
 	if st.Parallel {
@@ -239,7 +233,7 @@ func runJobTask(tc *taskCtx, t *models.WorkflowTask, st *models.StageTask, jt *m
 	tc.mu.Lock()
 	jt.Status = models.StatusRunning
 	if jt.JobType != models.JobTypeDeploy { // deploy 无执行物：不占用 K8s Job 名（Recover 泄漏清理按名删，不能给它发号）
-		jt.K8sJobName = jobName(t.WorkflowName, t.TaskID, st.Name, jt.Name)
+		jt.K8sJobName = k8s.JobName(t.WorkflowName, t.TaskID, st.Name, jt.Name)
 	}
 	// T1.3/T2.2 变量渲染：生成 driver 前（freestyle）/patch 前（deploy）把该 job 的
 	// spec 渲染掉（{{.global.x}} / {{.job.key}}——deploy 的 image 可引用上游 output）。
@@ -265,20 +259,22 @@ func runJobTask(tc *taskCtx, t *models.WorkflowTask, st *models.StageTask, jt *m
 	tc.mu.Unlock()
 	log.Printf("engine: task %s/%d job %q -> %s", t.WorkflowName, t.TaskID, jt.Name, jt.K8sJobName)
 
-	ctl := newJobCtl(jt)
-	runErr := ctl.Run(tc, jt) // K8s 级：创建/轮询/退出码/超时（期间 live 刷步骤状态）
+	// 执行器视图：Mu 传 taskCtx.mu 的指针——并行 job 的整树写回互斥靠同一把锁
+	ec := &exec.Ctx{Client: tc.client, NS: tc.ns, Task: t, Mu: &tc.mu, CancelCh: tc.cancelCh}
+	ctl := exec.NewJobCtl(jt)
+	runErr := ctl.Run(ec, jt) // K8s 级：创建/轮询/退出码/超时（期间 live 刷步骤状态）
 	infoErr := error(nil)
-	if !errors.Is(runErr, errCancelled) {
+	if !errors.Is(runErr, cancel.ErrCancelled) {
 		// 取消路径跳过 SaveInfo：finalizeSteps 会把 running 步骤翻成 failed（"did not
 		// finish"），与取消语义打架；步骤收口由下面的 cancelled 分支接管。日志不切分
 		// 是接受的代价（Job 已删，档案里保留 live 期间的步骤状态就够诊断）。
-		infoErr = ctl.SaveInfo(tc, jt) // 步骤级：日志切分、junit 门禁、created→skipped
+		infoErr = ctl.SaveInfo(ec, jt) // 步骤级：日志切分、junit 门禁、created→skipped
 	}
-	ctl.Clean(tc, jt) // 资源与数据分离：执行物销毁，档案长存
+	ctl.Clean(ec, jt) // 资源与数据分离：执行物销毁，档案长存
 
 	tc.mu.Lock()
 	switch {
-	case errors.Is(runErr, errCancelled):
+	case errors.Is(runErr, cancel.ErrCancelled):
 		// T1.5：取消——job 与步骤收口 cancelled/skipped，不走 failed 语义
 		jt.Status = models.StatusCancelled
 		jt.Error = "cancelled by user"
@@ -350,33 +346,6 @@ func markRestSkipped(t *models.WorkflowTask, failedStage *models.StageTask) {
 	ack(t)
 }
 
-// runJob 的完整生命周期（创建→轮询→清理）已搬进 jobctl.go 的 K8sJobCtl（Run/SaveInfo/Clean 三段式）。
-
-// podExitInfo —— 挖出 Pod 的退出码/原因（决断 #3"Pod 退出码 = job 结果"的落点）
-func podExitInfo(client kubernetes.Interface, ns, jobName string) string {
-	pods, err := client.CoreV1().Pods(ns).List(context.TODO(), metav1.ListOptions{LabelSelector: "job-name=" + jobName})
-	if err != nil || len(pods.Items) == 0 {
-		return "unknown (no pod found)"
-	}
-	for _, cs := range pods.Items[0].Status.ContainerStatuses {
-		if term := cs.State.Terminated; term != nil {
-			return fmt.Sprintf("code %d: %s", term.ExitCode, strings.TrimSpace(term.Message))
-		}
-		if w := cs.State.Waiting; w != nil {
-			return fmt.Sprintf("%s: %s", w.Reason, w.Message)
-		}
-	}
-	return "unknown"
-}
-
-// deleteOpts —— 显式 Background 级联：默认删 Job 会留下孤儿 Pod（k8s 的坑，日志里警告过）
-func deleteOpts() metav1.DeleteOptions {
-	return metav1.DeleteOptions{PropagationPolicy: func() *metav1.DeletionPropagation {
-		p := metav1.DeletePropagationBackground
-		return &p
-	}()}
-}
-
 // ack —— 任务每前进一步，整棵树写回 Mongo（对照 Zadig 的 ack() 全量写）
 func ack(t *models.WorkflowTask) {
 	if err := repo.UpdateTask(t); err != nil {
@@ -392,5 +361,5 @@ func finish(t *models.WorkflowTask, status models.Status, errMsg string) {
 	t.EndTime = time.Now().Unix()
 	t.Error = errMsg
 	ack(t)
-	notifyOnFinish(t)
+	notify.NotifyOnFinish(t)
 }

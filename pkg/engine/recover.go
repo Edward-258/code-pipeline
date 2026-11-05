@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"pipeline/pkg/config"
+	"pipeline/pkg/k8s"
 	"pipeline/pkg/models"
 	"pipeline/pkg/repo"
 )
@@ -23,7 +24,7 @@ import (
 // 学习版接受；Zadig 用 cancel 消息队列让旧进程自己动手，我们没有那套基建。
 func Recover() {
 	cfg := config.Load()
-	client, err := NewClient(cfg.K8SContext)
+	client, err := k8s.NewClient(cfg.K8SContext)
 	if err != nil {
 		log.Printf("engine: recover skipped (k8s client): %v", err)
 		return
@@ -41,7 +42,7 @@ func Recover() {
 	for _, t := range tasks {
 		leaked := declareDead(t)
 		for _, jobName := range leaked { // 清理执行物：K8s Job 是消耗品，档案才是真相源
-			_ = client.BatchV1().Jobs(cfg.K8SNamespace).Delete(context.TODO(), jobName, deleteOpts())
+			_ = client.BatchV1().Jobs(cfg.K8SNamespace).Delete(context.TODO(), jobName, k8s.DeleteOpts())
 		}
 		if err := repo.UpdateTask(t); err != nil {
 			log.Printf("engine: recover task %s/%d ack failed: %v", t.WorkflowName, t.TaskID, err)

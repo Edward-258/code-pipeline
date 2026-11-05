@@ -1,4 +1,4 @@
-package engine
+package step
 
 import (
 	"fmt"
@@ -162,7 +162,7 @@ func (c *JunitReportCtl) PreRun() (string, error) {
 
 // AfterRun —— 门禁判定（引擎侧）：解析步骤日志里的 junit XML → TestResult 落档案 →
 // 通过率 < PassRate 则把步骤翻成 failed（对照 Zadig 默认 100% 门禁）。
-// ⚠️ 必须在日志截断之前调用（引擎要读完整 XML）——见 finalizeSteps 的顺序。
+// ⚠️ 必须在日志截断之前调用（引擎要读完整 XML）——见 FinalizeSteps 的顺序。
 func (c *JunitReportCtl) AfterRun(st *models.StepTask) error {
 	res, err := parseJunitXML(st.Log)
 	if err != nil {

@@ -1,4 +1,4 @@
-package engine
+package exec
 
 import (
 	"context"
@@ -11,6 +11,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
+	"pipeline/pkg/engine/cancel"
 	"pipeline/pkg/models"
 	"pipeline/pkg/repo"
 )
@@ -40,9 +41,10 @@ var envResolver = func(name string) (string, error) {
 // rolloutWaitTimeout —— rollout 轮询上限（var：单测缩短，别让表测跑 10 分钟）
 var rolloutWaitTimeout = jobTimeout
 
+// DeployJobCtl —— deploy job 执行器（patch Deployment，不起 Pod）
 type DeployJobCtl struct{}
 
-func (DeployJobCtl) Run(tc *taskCtx, jt *models.JobTask) error {
+func (DeployJobCtl) Run(c *Ctx, jt *models.JobTask) error {
 	ds := jt.DeploySpec
 	ns, err := envResolver(ds.Env)
 	if err != nil {
@@ -65,10 +67,10 @@ func (DeployJobCtl) Run(tc *taskCtx, jt *models.JobTask) error {
 	if err != nil {
 		return fmt.Errorf("build patch: %w", err)
 	}
-	if _, err := tc.client.AppsV1().Deployments(ns).Patch(context.TODO(), ds.DeploymentName, types.StrategicMergePatchType, patch, metav1.PatchOptions{}); err != nil {
+	if _, err := c.Client.AppsV1().Deployments(ns).Patch(context.TODO(), ds.DeploymentName, types.StrategicMergePatchType, patch, metav1.PatchOptions{}); err != nil {
 		return fmt.Errorf("patch deployment %s/%s: %w", ns, ds.DeploymentName, err)
 	}
-	log.Printf("engine: task %s/%d deploy job %q -> deployment %s/%s image=%s", tc.t.WorkflowName, tc.t.TaskID, jt.Name, ns, ds.DeploymentName, ds.Image)
+	log.Printf("exec: task %s/%d deploy job %q -> deployment %s/%s image=%s", c.Task.WorkflowName, c.Task.TaskID, jt.Name, ns, ds.DeploymentName, ds.Image)
 	if !ds.ShouldWaitRollout() {
 		return nil
 	}
@@ -79,10 +81,10 @@ func (DeployJobCtl) Run(tc *taskCtx, jt *models.JobTask) error {
 	//   && unavailableReplicas == 0（没有旧 Pod 苟着）
 	deadline := time.Now().Add(rolloutWaitTimeout)
 	for {
-		if cancelled(tc.cancelCh) {
-			return errCancelled
+		if cancel.Fired(c.CancelCh) {
+			return cancel.ErrCancelled
 		}
-		d, err := tc.client.AppsV1().Deployments(ns).Get(context.TODO(), ds.DeploymentName, metav1.GetOptions{})
+		d, err := c.Client.AppsV1().Deployments(ns).Get(context.TODO(), ds.DeploymentName, metav1.GetOptions{})
 		if err != nil {
 			return fmt.Errorf("poll deployment %s/%s: %w", ns, ds.DeploymentName, err)
 		}
@@ -108,6 +110,6 @@ func rolloutDone(d *appsv1.Deployment) bool {
 	return d.Status.UpdatedReplicas >= desired && d.Status.UnavailableReplicas == 0
 }
 
-func (DeployJobCtl) SaveInfo(tc *taskCtx, jt *models.JobTask) error { return nil }
+func (DeployJobCtl) SaveInfo(c *Ctx, jt *models.JobTask) error { return nil }
 
-func (DeployJobCtl) Clean(tc *taskCtx, jt *models.JobTask) {}
+func (DeployJobCtl) Clean(c *Ctx, jt *models.JobTask) {}
