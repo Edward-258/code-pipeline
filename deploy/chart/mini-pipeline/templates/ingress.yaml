@@ -19,7 +19,14 @@ spec:
             pathType: Prefix
             backend:
               service:
+                {{- if .Values.tags.web }}
+                # 统一入口指前端 Pod：/api、/healthz 由前端 nginx 反代引擎（见 web-deployment.yaml）
+                name: mini-pipeline-web
+                port:
+                  number: 80
+                {{- else }}
                 name: mini-pipeline
                 port:
                   number: {{ .Values.service.port }}
+                {{- end }}
 {{- end }}

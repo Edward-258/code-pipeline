@@ -1,0 +1,37 @@
+# mini-pipeline 前端反代配置（envsubst 模板——nginx 官方镜像启动时渲染）
+# 统一入口形态：ingress 单条规则指本 Pod，/api 与 /healthz 由 nginx 反代引擎 service，
+# 其余走 SPA fallback（React Router 的前端路由不能 404）。
+# ${MP_ENGINE_UPSTREAM} 由 chart 注入（默认值见 Dockerfile ENV）。
+server {
+    listen 80;
+    root /usr/share/nginx/html;
+    index index.html;
+
+    # gzip 静态资源（bundle gzip 后 ~400KB → 传输再减 70%）
+    gzip on;
+    gzip_types text/css application/javascript application/json image/svg+xml;
+    gzip_min_length 1024;
+
+    # 静态指纹资源长缓存（vite 产物名带 contenthash，内容变名必变）
+    location /assets/ {
+        expires 30d;
+        add_header Cache-Control "public, immutable";
+    }
+
+    location /api/ {
+        proxy_pass http://${MP_ENGINE_UPSTREAM};
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_http_version 1.1;
+    }
+
+    # 健康检查直通引擎（验收门 curl /healthz 语义不变）
+    location = /healthz {
+        proxy_pass http://${MP_ENGINE_UPSTREAM};
+    }
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}

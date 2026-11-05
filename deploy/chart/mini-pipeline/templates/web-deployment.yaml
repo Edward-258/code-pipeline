@@ -1,0 +1,52 @@
+{{- if .Values.tags.web }}
+# 前端 Pod（nginx + React 静态产物 + /api 反代）——统一入口的承接者。
+# 反代上游经 MP_ENGINE_UPSTREAM 注入（nginx envsubst 模板渲染，见 frontend/Dockerfile），
+# 无 ConfigMap：镜像自包含，本地 docker run 也可用。
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mini-pipeline-web
+  namespace: {{ .Release.Namespace }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mini-pipeline-web
+  template:
+    metadata:
+      labels:
+        app: mini-pipeline-web
+    spec:
+      imagePullSecrets:
+        - name: acr-credential
+      containers:
+        - name: web
+          image: {{ .Values.web.image }}
+          imagePullPolicy: Always
+          env:
+            - name: MP_ENGINE_UPSTREAM
+              value: "mini-pipeline.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}"
+          ports:
+            - containerPort: 80
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 3
+          {{- with .Values.resources.web }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mini-pipeline-web
+  namespace: {{ .Release.Namespace }}
+spec:
+  selector:
+    app: mini-pipeline-web
+  ports:
+    - port: 80
+      targetPort: 80
+{{- end }}

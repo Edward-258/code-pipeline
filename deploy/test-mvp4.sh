@@ -55,19 +55,26 @@ assert_eq "翻页 size=1 第1页" "$(curl -sk "$BASE/api/tasks/$LST?page=1&size=
 assert_eq "翻页 size=1 第2页" "$(curl -sk "$BASE/api/tasks/$LST?page=2&size=1" | jq -r '.items | length')" "1"
 assert_eq "总数不随翻页变" "$(curl -sk "$BASE/api/tasks/$LST?page=2&size=1" | jq -r '.total')" "2"
 
-echo "== 幕2 前端可服务性 =="
+echo "== 幕2 前端可服务性（React+nginx 独立 Pod） =="
 HTML=$(curl -sk "$BASE/")
 assert_has "index.html 可服务" "$HTML" "mini-pipeline"
-assert_has "五页签在位" "$HTML" 'data-t="cron"'
-assert_has "任务页签在位" "$HTML" 'data-t="task"'
-# §9.19 教训：模板反引号配对崩坏曾让整段 JS 死掉（页面空+全不可点）而 grep 门全绿——
-# 前端脚本必须过语法门。打的是 $BASE 实吐字节（连 ingress 篡改一起验）。
-if command -v node >/dev/null 2>&1; then
-  printf '%s' "$HTML" | sed -n '/^<script>$/,/^<\/script>$/p' | sed '1d;$d' > /tmp/mvp4-page.js
-  if node --check /tmp/mvp4-page.js 2>/tmp/mvp4-err.txt; then
-    ok "前端脚本语法门（node --check）"
-  else
-    bad "前端脚本语法错误: $(head -2 /tmp/mvp4-err.txt | tr '\n' ' ')"
+# SPA 形态：导航/页面在 JS bundle 里，index 只有挂载点。断言 bundle 引用在位 + 可下载
+BUNDLE=$(printf '%s' "$HTML" | grep -o '/assets/index-[^"]*\.js' | head -1)
+if [ -n "$BUNDLE" ]; then ok "bundle 引用在位"; else bad "bundle 引用缺失（非 React 前端在吐？）"; fi
+if [ -n "$BUNDLE" ]; then
+  curl -sk "$BASE$BUNDLE" -o /tmp/mvp4-bundle.mjs
+  SIZE=$(wc -c </tmp/mvp4-bundle.mjs)
+  if [ "$SIZE" -gt 100000 ]; then ok "bundle 可下载（${SIZE}B）"; else bad "bundle 异常小（${SIZE}B）"; fi
+  # §9.19 教训：字符串在位≠脚本活着——bundle 必须过真语法门（ESM 形态，打实吐字节）
+  if command -v node >/dev/null 2>&1; then
+    if node --check /tmp/mvp4-bundle.mjs 2>/tmp/mvp4-err.txt; then
+      ok "前端 bundle 语法门（node --check ESM）"
+    else
+      bad "bundle 语法错误: $(head -2 /tmp/mvp4-err.txt | tr '\n' ' ')"
+    fi
+    # 五导航在 bundle（antd Menu 的中文 label 编译进产物）
+    grep -q "工作流" /tmp/mvp4-bundle.mjs && grep -q "定时" /tmp/mvp4-bundle.mjs \
+      && ok "五页导航内容在 bundle" || bad "bundle 缺导航内容"
   fi
 fi
 
