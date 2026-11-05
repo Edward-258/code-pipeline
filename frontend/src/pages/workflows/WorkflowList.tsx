@@ -36,7 +36,7 @@ export default function WorkflowList() {
   return (
     <Card title="工作流" extra={<Button type="primary" icon={<PlusOutlined />} onClick={() => nav('/workflows/new')}>新建</Button>}>
       {ctx}
-      {error && <p style={{ color: '#f87171' }}>加载失败：{error}</p>}
+      {error && <p style={{ color: '#ef4444' }}>加载失败：{error}</p>}
       <Table<Workflow>
         rowKey="name"
         size="middle"

@@ -51,7 +51,7 @@ export default function TaskList() {
           onSearch={(v) => { setCreator(v); setPage(1) }}
         />
       </Space>
-      {error && <p style={{ color: '#f87171' }}>加载失败：{error}</p>}
+      {error && <p style={{ color: '#ef4444' }}>加载失败：{error}</p>}
       <Table<WorkflowTask>
         rowKey="id"
         size="middle"

@@ -22,7 +22,7 @@ export default function App() {
 
   return (
     <Layout style={{ minHeight: '100vh' }}>
-      <Layout.Sider theme="dark" width={200}>
+      <Layout.Sider theme="light" width={200} style={{ borderRight: '1px solid #f0f0f0' }}>
         <div
           style={{
             color: '#14b8a6', fontWeight: 700, fontSize: 16,
@@ -33,7 +33,7 @@ export default function App() {
         </div>
         <Menu
           mode="inline"
-          theme="dark"
+          theme="light"
           selectedKeys={[selected]}
           items={ITEMS}
           onClick={({ key }) => nav(key)}

@@ -34,7 +34,7 @@ export default function StepForm({ step, index, total, onChange, onRemove, onMov
   }
 
   return (
-    <div style={{ border: '1px solid #263041', borderRadius: 8, padding: '10px 14px', marginBottom: 10 }}>
+    <div style={{ border: '1px solid #e5e7eb', borderRadius: 8, padding: '10px 14px', marginBottom: 10 }}>
       <Row gutter={10} align="middle" style={{ marginBottom: 8 }}>
         <Col flex="180px">
           <Input
