@@ -12,7 +12,7 @@ import (
 
 // IM 通知配置 API（T3.3）：POST/GET/PUT/DELETE /api/notifies（与 cron 同构）。
 
-func CreateNotifyCfg(c *gin.Context) {
+func createNotifyCfg(c *gin.Context) {
 	var n models.NotifyConfig
 	if err := c.ShouldBindJSON(&n); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -32,7 +32,7 @@ func CreateNotifyCfg(c *gin.Context) {
 	c.JSON(http.StatusOK, n)
 }
 
-func ListNotifyCfgs(c *gin.Context) {
+func listNotifyCfgs(c *gin.Context) {
 	list, err := repo.ListNotifies()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -44,7 +44,7 @@ func ListNotifyCfgs(c *gin.Context) {
 	c.JSON(http.StatusOK, list)
 }
 
-func UpdateNotifyCfg(c *gin.Context) {
+func updateNotifyCfg(c *gin.Context) {
 	var n models.NotifyConfig
 	if err := c.ShouldBindJSON(&n); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -69,7 +69,7 @@ func UpdateNotifyCfg(c *gin.Context) {
 	c.JSON(http.StatusOK, n)
 }
 
-func DeleteNotifyCfg(c *gin.Context) {
+func deleteNotifyCfg(c *gin.Context) {
 	if err := repo.DeleteNotify(c.Param("name")); err == repo.ErrNotFound {
 		c.JSON(http.StatusNotFound, gin.H{"error": "notify not found"})
 		return

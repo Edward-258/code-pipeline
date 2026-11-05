@@ -17,7 +17,7 @@ import (
 // 表达式在写入时校验（坏 cron 留在库里 = 每分钟刷错误日志的哑弹）。
 
 // CreateCron POST /api/crons
-func CreateCron(c *gin.Context) {
+func createCron(c *gin.Context) {
 	var cr models.Cron
 	if err := c.ShouldBindJSON(&cr); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -38,7 +38,7 @@ func CreateCron(c *gin.Context) {
 }
 
 // ListCrons GET /api/crons
-func ListCrons(c *gin.Context) {
+func listCrons(c *gin.Context) {
 	list, err := repo.ListCrons()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -51,7 +51,7 @@ func ListCrons(c *gin.Context) {
 }
 
 // UpdateCron PUT /api/crons/:name —— 全量更新（enabled 开关 / 换表达式 / 换图纸）
-func UpdateCron(c *gin.Context) {
+func updateCron(c *gin.Context) {
 	var cr models.Cron
 	if err := c.ShouldBindJSON(&cr); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -77,7 +77,7 @@ func UpdateCron(c *gin.Context) {
 }
 
 // DeleteCron DELETE /api/crons/:name
-func DeleteCron(c *gin.Context) {
+func deleteCron(c *gin.Context) {
 	if err := repo.DeleteCron(c.Param("name")); err == repo.ErrNotFound {
 		c.JSON(http.StatusNotFound, gin.H{"error": "cron not found"})
 		return
@@ -89,7 +89,7 @@ func DeleteCron(c *gin.Context) {
 }
 
 // TriggerCron POST /api/crons/:name/fire —— 手动点火（验收用：不等整分钟就能触发一次）
-func TriggerCron(c *gin.Context) {
+func triggerCron(c *gin.Context) {
 	cr, err := repo.FindCron(c.Param("name"))
 	if err == repo.ErrNotFound {
 		c.JSON(http.StatusNotFound, gin.H{"error": "cron not found"})

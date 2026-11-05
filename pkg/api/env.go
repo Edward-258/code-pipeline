@@ -16,7 +16,7 @@ import (
 var envNameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}$`) // 与 K8s namespace 命名规则同构（小写数字中划线）
 
 // CreateEnv POST /api/envs
-func CreateEnv(c *gin.Context) {
+func createEnv(c *gin.Context) {
 	var e models.Env
 	if err := c.ShouldBindJSON(&e); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -41,7 +41,7 @@ func CreateEnv(c *gin.Context) {
 }
 
 // ListEnvs GET /api/envs
-func ListEnvs(c *gin.Context) {
+func listEnvs(c *gin.Context) {
 	list, err := repo.ListEnvs()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -55,7 +55,7 @@ func ListEnvs(c *gin.Context) {
 
 // UpdateEnv PUT /api/envs/:name —— name 是主键不可改（改=新建+删旧），
 // 只更新 namespace/desc；CreatedAt 从旧档带过来
-func UpdateEnv(c *gin.Context) {
+func updateEnv(c *gin.Context) {
 	var e models.Env
 	if err := c.ShouldBindJSON(&e); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -91,7 +91,7 @@ func UpdateEnv(c *gin.Context) {
 }
 
 // DeleteEnv DELETE /api/envs/:name
-func DeleteEnv(c *gin.Context) {
+func deleteEnv(c *gin.Context) {
 	if err := repo.DeleteEnv(c.Param("name")); err == repo.ErrNotFound {
 		c.JSON(http.StatusNotFound, gin.H{"error": "env not found"})
 		return
