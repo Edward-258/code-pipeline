@@ -13,6 +13,7 @@
           "type": "freestyle",
           "spec": {
             "image": "golang:1.27-alpine",
+            "timeout_minutes": 30,
             "steps": [
               {
                 "name": "toolchain",
