@@ -76,7 +76,7 @@ func BuildTask(wf *models.Workflow, taskID int64) *models.WorkflowTask {
 		WorkflowName:  wf.Name,
 		Status:        models.StatusCreated,
 		Creator:       "api",
-		WorkflowArgs:  SnapshotWorkflow(wf),
+		WorkflowArgs:  snapshotWorkflow(wf),
 		GlobalContext: copyStrings(wf.GlobalContext), // M4：图纸级变量 → 任务初始上下文（快照独立副本，改图纸不影响在跑任务）
 		Stages:        stages,
 		CreatedAt:     time.Now(),
@@ -96,7 +96,7 @@ func copyStrings(m map[string]string) map[string]string {
 }
 
 // snapshotWorkflow —— 图纸深拷贝（Stage/Job/Spec 逐层复制，绝不共享指针）
-func SnapshotWorkflow(wf *models.Workflow) *models.Workflow {
+func snapshotWorkflow(wf *models.Workflow) *models.Workflow {
 	out := &models.Workflow{
 		Name:          wf.Name,
 		Stages:        make([]*models.Stage, 0, len(wf.Stages)),

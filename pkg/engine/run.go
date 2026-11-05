@@ -1,3 +1,6 @@
+// Package engine —— 编排核心：Run 状态机（run/stages/jobs/finish 四层切面）、
+// 任务快照与触发（task/trigger）、派发队列（queue）、启动宣判（recover）、
+// 变量渲染（vars）、任务运维操作面（ops）。
 package engine
 
 import (

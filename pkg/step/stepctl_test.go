@@ -10,7 +10,7 @@ import (
 // TestGitCtlPreRun —— git 片段渲染：token 注入、目录推断、默认分支
 func TestGitCtlPreRun(t *testing.T) {
 	get := func(s *models.StepSpec) string {
-		frag, err := (&GitCtl{spec: s}).PreRun()
+		frag, err := (&gitCtl{spec: s}).PreRun()
 		if err != nil {
 			t.Fatalf("PreRun: %v", err)
 		}
@@ -46,13 +46,13 @@ func TestGitCtlPreRun(t *testing.T) {
 // ⚠️ 前缀段必须是 "$MP_NODE_REGISTRY"/ 双引号形态（sh 不展开单引号里的变量，
 // 幕1 首跑时单引号形态让 docker 收到字面量报 exit=125——测试要钉住的是 shell 语义不是字符串长相）
 func TestDockerBuildCtlPreRun(t *testing.T) {
-	frag, _ := (&DockerBuildCtl{spec: &models.StepSpec{Type: models.StepDockerBuild, Image: "mini-demo"}}).PreRun()
+	frag, _ := (&dockerBuildCtl{spec: &models.StepSpec{Type: models.StepDockerBuild, Image: "mini-demo"}}).PreRun()
 	if !strings.Contains(frag, `-t "$MP_NODE_REGISTRY"/'mini-demo:latest'`) ||
 		!strings.Contains(frag, `docker push "$MP_NODE_REGISTRY"/'mini-demo:latest'`) {
 		t.Errorf("bare image should get expandable registry prefix + latest tag: %s", frag)
 	}
 
-	frag, _ = (&DockerBuildCtl{spec: &models.StepSpec{Type: models.StepDockerBuild, Image: "172.29.237.250:3050/x", Tag: "v2", Dockerfile: "build/Dockerfile", ContextDir: "cmd/app"}}).PreRun()
+	frag, _ = (&dockerBuildCtl{spec: &models.StepSpec{Type: models.StepDockerBuild, Image: "172.29.237.250:3050/x", Tag: "v2", Dockerfile: "build/Dockerfile", ContextDir: "cmd/app"}}).PreRun()
 	if strings.Contains(frag, "MP_NODE_REGISTRY") { // 已带前缀不重复加
 		t.Errorf("prefixed image must not get double prefix: %s", frag)
 	}
@@ -68,7 +68,7 @@ func TestJunitGate(t *testing.T) {
 
 	run := func(log string, rate float64) *models.StepTask {
 		st := &models.StepTask{Name: "r", Type: models.StepJunitReport, Status: models.StatusPassed, Log: log}
-		ctl := &JunitReportCtl{spec: &models.StepSpec{Type: models.StepJunitReport, PassRate: rate}}
+		ctl := &junitReportCtl{spec: &models.StepSpec{Type: models.StepJunitReport, PassRate: rate}}
 		if err := ctl.AfterRun(st); err != nil {
 			t.Fatalf("AfterRun returned engine error: %v", err) // 门禁失败是步骤失败，不是引擎错误
 		}

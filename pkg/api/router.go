@@ -1,3 +1,5 @@
+// Package api —— gin handler 层：HTTP 形状翻译（参数解析、状态码映射、JSON envelope）。
+// 领域逻辑全部在 engine/models/repo，这里不碰 K8s 与取消注册表。
 package api
 
 import (

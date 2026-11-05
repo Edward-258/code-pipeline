@@ -97,4 +97,3 @@ func TestSendNotifyRetry(t *testing.T) {
 		t.Errorf("calls = %d, want 2", calls)
 	}
 }
-

@@ -16,7 +16,7 @@ import (
 // Upsert(true)：第一个号自动建档；ReturnDocument(After)：直接返回递增后的值。
 func NextID(key string) (int64, error) {
 	var c models.Counter
-	err := CounterColl.FindOneAndUpdate(
+	err := counterColl.FindOneAndUpdate(
 		context.TODO(),
 		bson.M{"_id": key},
 		bson.M{"$inc": bson.M{"seq": int64(1)}},

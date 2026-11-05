@@ -1,6 +1,8 @@
 package api
 
 import (
+	"errors"
+
 	"encoding/json"
 	"io"
 	"net/http"
@@ -17,11 +19,11 @@ import (
 // 验签 → repo+branch 匹配图纸 webhooks 配置 → TriggerWorkflow 正常入队
 // （creator=webhook:<repo>@<branch>）。
 
-// Webhook POST /api/webhook/:workflow
+// handleWebhook POST /api/webhook/:workflow
 func handleWebhook(c *gin.Context) {
 	wfName := c.Param("workflow")
 	wf, err := repo.FindWorkflow(wfName)
-	if err == repo.ErrNotFound {
+	if errors.Is(err, repo.ErrNotFound) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "workflow not found"})
 		return
 	} else if err != nil {

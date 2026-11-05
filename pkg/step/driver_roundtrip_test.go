@@ -20,7 +20,7 @@ func TestDriverRoundtrip(t *testing.T) {
 
 	steps := []*models.StepSpec{
 		{Name: "first", Type: models.StepShell, Script: "echo working\nmp_output \"BUILD_ID=42\"\necho '===MP=== OUTPUT RAW=ok'"}, // mp_output + 裸 echo 双路产出（T1.2）
-		{Name: "boom", Type: models.StepShell, Script: "echo about-to-fail >&2; exit 7"}, // stderr 混流不许破坏协议
+		{Name: "boom", Type: models.StepShell, Script: "echo about-to-fail >&2; exit 7"},                                          // stderr 混流不许破坏协议
 		{Name: "never", Type: models.StepShell, Script: "echo SHOULD-NOT-RUN"},
 	}
 	script, err := GenerateDriverScript(steps)

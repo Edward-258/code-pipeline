@@ -90,17 +90,19 @@ webhook 验签 ──┘                        │
 ```
 pkg/
 ├── config/        环境配置（leaf）
-├── models/        领域模型 + 状态常量 + ManualExec.Satisfied()（leaf）
-├── repo/          MongoDB 持久层（counter 发号 / ack 全量写 / GridFS artifacts）
-├── step/          脚本执行层：driver.go 驱动脚本生成 / stepctl.go 五种 StepCtl / logs.go banner 解析·切分·收口
+├── models/        领域模型（leaf）：结构体 + Status/WorstOf + 纯领域逻辑（ValidateWorkflow/CronMatch/Satisfied/EffectiveSteps/NeedsRunner）
+├── repo/          MongoDB 持久层（counter 发号 / ack 全量写 / GridFS artifacts；集合句柄全包内私有）
+├── step/          脚本执行层：driver.go 驱动脚本生成 / StepCtl 接口+工厂（shell/git/dockerbuild/junit/archive 一Ctl一文件）/ logs.go banner 解析·切分·收口
 ├── k8s/           K8s 访问层：client / JobName+BuildJob / PodLog+TailJobLog / PodExitInfo+DeleteOpts
-├── engine/        编排核心：run.go 状态机 / task.go 快照 / trigger.go 统一触发 / queue.go 派发器 / recover.go 宣判 / vars.go 变量
-│   ├── cancel/    取消注册表（Register/Request/Fired/Tree）
-│   ├── exec/      JobCtl 执行器（K8sJobCtl 重试+轮询 / DeployJobCtl rollout）
+├── engine/        编排核心：run.go 入口+taskCtx / stages.go stage 状态机 / jobs.go job 状态机 / finish.go 收口
+│   │              task.go 快照 / trigger.go 统一触发（spawn 唯一构造序列）/ ops.go 任务运维操作面
+│   │              queue.go 派发器 / recover.go 宣判 / vars.go 变量
+│   ├── cancel/    取消注册表（Register/Request/Signalled/Tree）
+│   ├── exec/      JobCtl 执行器（K8sJobCtl 重试+轮询 / DeployJobCtl rollout；ack 经 Ctx 由 engine 注入）
 │   ├── notify/    IM 通知
-│   └── cron/      定时调度（import engine，engine 不回头 import 它）
+│   └── cron/      定时调度（FireFunc 回调注入触发动作，不 import engine）
 ├── webhook/       git 签名/载荷/匹配纯逻辑
-└── api/           gin handler 层 + 路由
+└── api/           gin handler 层：纯 HTTP 形状翻译（业务全在 engine/models/repo；handler 全包内私有）
 main.go            仅装配：config→repo.Init→Recover→派发器→cron→gin
 docker/            三镜像 Dockerfile：引擎 / runner / web（React+nginx）
 deploy/            chart/ + build-push.sh + build-runner.sh + build-web.sh + test-*.sh + bootstrap-*

@@ -5,12 +5,12 @@ import "time"
 // WorkflowTask —— 施工档案（对照 Zadig models/wokflow_task_v4.go，文件名拼写错误是上游的）
 // 关键设计：WorkflowArgs 内嵌【当时的完整图纸快照】，改图纸不影响查历史、克隆重跑
 type WorkflowTask struct {
-	ID            string            `bson:"_id"               json:"id"` // 自然键 <workflow_name>-<task_id>，插入前就定好
+	ID            string            `bson:"_id"               json:"id"`      // 自然键 <workflow_name>-<task_id>，插入前就定好
 	TaskID        int64             `bson:"task_id"           json:"task_id"` // counter 发的号
 	WorkflowName  string            `bson:"workflow_name"     json:"workflow_name"`
 	Status        Status            `bson:"status"            json:"status"`
 	Creator       string            `bson:"creator"           json:"creator"`
-	WorkflowArgs  *Workflow         `bson:"workflow_args"     json:"workflow_args"` // ⭐ 快照
+	WorkflowArgs  *Workflow         `bson:"workflow_args"     json:"workflow_args"`                   // ⭐ 快照
 	GlobalContext map[string]string `bson:"global_context,omitempty" json:"global_context,omitempty"` // M4: {{.jobX.output}}
 	Stages        []*StageTask      `bson:"stages"            json:"stages"`
 	StartTime     int64             `bson:"start_time,omitempty" json:"start_time,omitempty"`
@@ -39,8 +39,8 @@ type JobTask struct {
 	K8sJobName string            `bson:"k8s_job_name"    json:"k8s_job_name"` // freestyle：真实 K8s Job 名；deploy 无执行物（留空语义但字段保留）
 	Spec       *FreestyleSpec    `bson:"spec"            json:"spec"`
 	DeploySpec *DeploySpec       `bson:"deploy_spec,omitempty" json:"deploy_spec,omitempty"` // deploy job 专用（T2.2）
-	Steps      []*StepTask       `bson:"steps,omitempty" json:"steps,omitempty"` // ⭐ 分界面的叶子层
-	Outputs    map[string]string `bson:"outputs,omitempty" json:"outputs,omitempty"` // M4
+	Steps      []*StepTask       `bson:"steps,omitempty" json:"steps,omitempty"`             // ⭐ 分界面的叶子层
+	Outputs    map[string]string `bson:"outputs,omitempty" json:"outputs,omitempty"`         // M4
 	Error      string            `bson:"error,omitempty" json:"error,omitempty"`
 	Retry      int               `bson:"retry"           json:"retry"`
 }
@@ -54,7 +54,7 @@ type StepTask struct {
 	StartTime  int64       `bson:"start_time,omitempty" json:"start_time,omitempty"`
 	EndTime    int64       `bson:"end_time,omitempty"   json:"end_time,omitempty"`
 	Error      string      `bson:"error,omitempty"      json:"error,omitempty"`
-	Log        string      `bson:"log,omitempty"        json:"log,omitempty"` // 分步日志（banner 切分，存档前截断 64KB）
+	Log        string      `bson:"log,omitempty"        json:"log,omitempty"`          // 分步日志（banner 切分，存档前截断 64KB）
 	TestResult *TestResult `bson:"test_result,omitempty" json:"test_result,omitempty"` // junit_report 步骤的统计
 }
 

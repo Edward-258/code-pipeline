@@ -1,6 +1,8 @@
 package repo
 
 import (
+	"errors"
+
 	"context"
 	"time"
 
@@ -13,7 +15,7 @@ import (
 func CreateNotify(n *models.NotifyConfig) error {
 	now := time.Now()
 	n.CreatedAt, n.UpdatedAt = now, now
-	_, err := NotifyColl.InsertOne(context.TODO(), n)
+	_, err := notifyColl.InsertOne(context.TODO(), n)
 	if mongo.IsDuplicateKeyError(err) {
 		return ErrExists
 	}
@@ -22,8 +24,8 @@ func CreateNotify(n *models.NotifyConfig) error {
 
 func FindNotify(name string) (*models.NotifyConfig, error) {
 	var n models.NotifyConfig
-	err := NotifyColl.FindOne(context.TODO(), bson.M{"_id": name}).Decode(&n)
-	if err == mongo.ErrNoDocuments {
+	err := notifyColl.FindOne(context.TODO(), bson.M{"_id": name}).Decode(&n)
+	if errors.Is(err, mongo.ErrNoDocuments) {
 		return nil, ErrNotFound
 	}
 	if err != nil {
@@ -33,7 +35,7 @@ func FindNotify(name string) (*models.NotifyConfig, error) {
 }
 
 func ListNotifies() ([]*models.NotifyConfig, error) {
-	cur, err := NotifyColl.Find(context.TODO(), bson.M{})
+	cur, err := notifyColl.Find(context.TODO(), bson.M{})
 	if err != nil {
 		return nil, err
 	}
@@ -52,12 +54,12 @@ func ListNotifies() ([]*models.NotifyConfig, error) {
 
 func UpdateNotify(n *models.NotifyConfig) error {
 	n.UpdatedAt = time.Now()
-	_, err := NotifyColl.ReplaceOne(context.TODO(), bson.M{"_id": n.Name}, n)
+	_, err := notifyColl.ReplaceOne(context.TODO(), bson.M{"_id": n.Name}, n)
 	return err
 }
 
 func DeleteNotify(name string) error {
-	res, err := NotifyColl.DeleteOne(context.TODO(), bson.M{"_id": name})
+	res, err := notifyColl.DeleteOne(context.TODO(), bson.M{"_id": name})
 	if err != nil {
 		return err
 	}

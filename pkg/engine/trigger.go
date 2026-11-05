@@ -16,7 +16,7 @@ var ErrWorkflowNotFound = errors.New("workflow not found")
 // 灵魂只允许一个构造器，见 engine/task.go 与下面的 spawn）。
 func TriggerWorkflow(wfName, creator string) (*models.WorkflowTask, error) {
 	wf, err := repo.FindWorkflow(wfName)
-	if err == repo.ErrNotFound {
+	if errors.Is(err, repo.ErrNotFound) {
 		return nil, fmt.Errorf("%w: %q", ErrWorkflowNotFound, wfName)
 	}
 	if err != nil {

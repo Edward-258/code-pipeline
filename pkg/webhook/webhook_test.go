@@ -43,7 +43,7 @@ func TestPickAndNormRepo(t *testing.T) {
 	if wc, _ := Pick(wcs, "refs/heads/dev", "o/r"); wc != nil {
 		t.Error("branch mismatch must not pick")
 	}
-	if NormRepo("https://github.com/o/r.git") != "o/r" || NormRepo("o/r/") != "o/r" || NormRepo("o/r") != "o/r" {
+	if normRepo("https://github.com/o/r.git") != "o/r" || normRepo("o/r/") != "o/r" || normRepo("o/r") != "o/r" {
 		t.Error("normRepo url/plain forms")
 	}
 	// 空 Branch = 任意分支

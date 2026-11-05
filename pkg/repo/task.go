@@ -13,7 +13,7 @@ import (
 )
 
 func CreateTask(t *models.WorkflowTask) error {
-	_, err := TaskColl.InsertOne(context.TODO(), t)
+	_, err := taskColl.InsertOne(context.TODO(), t)
 	return err
 }
 
@@ -21,7 +21,7 @@ func CreateTask(t *models.WorkflowTask) error {
 // "整棵读"是这套数据的唯一读法（聚合根访问模式），从不跨实体 JOIN
 func FindTask(workflowName string, taskID int64) (*models.WorkflowTask, error) {
 	var t models.WorkflowTask
-	err := TaskColl.FindOne(context.TODO(), bson.M{
+	err := taskColl.FindOne(context.TODO(), bson.M{
 		"workflow_name": workflowName,
 		"task_id":       taskID,
 	}).Decode(&t)
@@ -41,7 +41,7 @@ func UpdateTask(t *models.WorkflowTask) error {
 	if t.ID == "" {
 		return errors.New("update task: empty _id")
 	}
-	_, err := TaskColl.ReplaceOne(context.TODO(), bson.M{"_id": t.ID}, t)
+	_, err := taskColl.ReplaceOne(context.TODO(), bson.M{"_id": t.ID}, t)
 	return err
 }
 
@@ -52,7 +52,7 @@ func UpdateTask(t *models.WorkflowTask) error {
 // Zadig 原版连 waiting-approve 一起取消，这里是有意的分叉点。
 func InCompletedTasks() ([]*models.WorkflowTask, error) {
 	opts := options.Find().SetSort(bson.D{{Key: "created_at", Value: 1}})
-	cur, err := TaskColl.Find(context.TODO(), bson.M{
+	cur, err := taskColl.Find(context.TODO(), bson.M{
 		"status": bson.M{"$in": []models.Status{models.StatusCreated, models.StatusQueued, models.StatusRunning}},
 	}, opts)
 	if err != nil {
@@ -75,7 +75,7 @@ func InCompletedTasks() ([]*models.WorkflowTask, error) {
 // 必须返回整棵树：抢占了就要直接喂给 engine.Run，投影省的那点流量换不来半棵树跑错。
 func ListQueued() ([]*models.WorkflowTask, error) {
 	opts := options.Find().SetSort(bson.D{{Key: "task_id", Value: 1}})
-	cur, err := TaskColl.Find(context.TODO(), bson.M{"status": models.StatusQueued}, opts)
+	cur, err := taskColl.Find(context.TODO(), bson.M{"status": models.StatusQueued}, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -96,7 +96,7 @@ func ListQueued() ([]*models.WorkflowTask, error) {
 // pause 不在场（它没有 goroutine，不占名额——T1.6 交互清单第一条）。
 func RunningStats() (total int64, byWf map[string]int64, err error) {
 	byWf = map[string]int64{}
-	cur, err := TaskColl.Find(context.TODO(), bson.M{"status": models.StatusRunning},
+	cur, err := taskColl.Find(context.TODO(), bson.M{"status": models.StatusRunning},
 		options.Find().SetProjection(bson.M{"workflow_name": 1}))
 	if err != nil {
 		return 0, nil, err
@@ -119,7 +119,7 @@ func RunningStats() (total int64, byWf map[string]int64, err error) {
 // 才起 goroutine——同一拍内/相邻拍间的双派、以及与 cancel 数据收口的竞态，都被
 // 这一次条件更新挡在 Mongo 的单文档原子性上。
 func ClaimQueued(t *models.WorkflowTask) (bool, error) {
-	res, err := TaskColl.UpdateOne(context.TODO(),
+	res, err := taskColl.UpdateOne(context.TODO(),
 		bson.M{"_id": t.ID, "status": models.StatusQueued},
 		bson.M{"$set": bson.M{"status": models.StatusRunning}})
 	if err != nil {
@@ -151,7 +151,8 @@ func (f *TaskFilter) Normalize() {
 }
 
 // ListTasksFiltered —— 过滤 + 分页 + 总数（分页界面的三件套）。排序 task_id 降序（新的在前）。
-func ListTasksFiltered(workflowName string, f TaskFilter) ([]*models.WorkflowTask, int64, error) {
+// 返回归一化后的 filter（Page/Size 已填默认值）——调用方直接用它组响应，不用再猜边界。
+func ListTasksFiltered(workflowName string, f TaskFilter) ([]*models.WorkflowTask, int64, TaskFilter, error) {
 	f.Normalize()
 	q := bson.M{"workflow_name": workflowName}
 	if f.Status != "" {
@@ -171,18 +172,18 @@ func ListTasksFiltered(workflowName string, f TaskFilter) ([]*models.WorkflowTas
 		q["created_at"] = rng
 	}
 
-	total, err := TaskColl.CountDocuments(context.TODO(), q)
+	total, err := taskColl.CountDocuments(context.TODO(), q)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, f, err
 	}
 	opts := options.Find().
 		SetSort(bson.D{{Key: "task_id", Value: -1}}).
 		SetSkip((f.Page - 1) * f.Size).
 		SetLimit(f.Size).
 		SetProjection(bson.M{"stages": 0, "workflow_args": 0}) // 列表页不拉整棵树
-	cur, err := TaskColl.Find(context.TODO(), q, opts)
+	cur, err := taskColl.Find(context.TODO(), q, opts)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, f, err
 	}
 	defer cur.Close(context.TODO())
 
@@ -190,34 +191,9 @@ func ListTasksFiltered(workflowName string, f TaskFilter) ([]*models.WorkflowTas
 	for cur.Next(context.TODO()) {
 		var t models.WorkflowTask
 		if err := cur.Decode(&t); err != nil {
-			return nil, 0, err
+			return nil, 0, f, err
 		}
 		out = append(out, &t)
 	}
-	return out, total, cur.Err()
-}
-
-func ListTasks(workflowName string, limit int64) ([]*models.WorkflowTask, error) {
-	if limit <= 0 {
-		limit = 20
-	}
-	opts := options.Find().
-		SetSort(bson.D{{Key: "task_id", Value: -1}}).
-		SetLimit(limit).
-		SetProjection(bson.M{"stages": 0, "workflow_args": 0}) // 列表页不拉整棵树
-	cur, err := TaskColl.Find(context.TODO(), bson.M{"workflow_name": workflowName}, opts)
-	if err != nil {
-		return nil, err
-	}
-	defer cur.Close(context.TODO())
-
-	var out []*models.WorkflowTask
-	for cur.Next(context.TODO()) {
-		var t models.WorkflowTask
-		if err := cur.Decode(&t); err != nil {
-			return nil, err
-		}
-		out = append(out, &t)
-	}
-	return out, cur.Err()
+	return out, total, f, cur.Err()
 }

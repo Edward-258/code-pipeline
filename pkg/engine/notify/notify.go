@@ -1,3 +1,4 @@
+// Package notify —— IM 通知：任务终态 fire-and-forget 钩子，飞书/钉钉双报文双加签。
 package notify
 
 import (

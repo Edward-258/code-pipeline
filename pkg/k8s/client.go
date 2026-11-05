@@ -1,3 +1,5 @@
+// Package k8s —— K8s 访问层：client 装配、K8s Job 构造（build.go）、Pod 日志
+// （log.go）、退出码/删除选项（util.go）。资源 I/O 的全部细节收在此处。
 package k8s
 
 import (

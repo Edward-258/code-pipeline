@@ -1,3 +1,5 @@
+// Package cron —— 定时触发调度器：整分钟对齐 ticker 扫 enabled 配置，命中即经
+// FireFunc 回调触发（依赖注入，不 import engine）。
 package cron
 
 import (

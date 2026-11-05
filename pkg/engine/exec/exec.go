@@ -1,3 +1,6 @@
+// Package exec —— job 执行器：JobCtl 三件套接口（Run→SaveInfo→Clean 顺序铁律）与
+// K8sJobCtl（freestyle）/DeployJobCtl（deploy rollout）两个实现。整树写回经 Ctx.Ack
+// 由 engine 注入，绝不回 import engine 本体。
 package exec
 
 import (

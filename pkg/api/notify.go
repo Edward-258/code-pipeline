@@ -1,6 +1,8 @@
 package api
 
 import (
+	"errors"
+
 	"fmt"
 	"net/http"
 
@@ -22,7 +24,7 @@ func createNotifyCfg(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	if err := repo.CreateNotify(&n); err == repo.ErrExists {
+	if err := repo.CreateNotify(&n); errors.Is(err, repo.ErrExists) {
 		c.JSON(http.StatusConflict, gin.H{"error": "notify " + n.Name + " already exists"})
 		return
 	} else if err != nil {
@@ -50,7 +52,7 @@ func updateNotifyCfg(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	if _, err := repo.FindNotify(c.Param("name")); err == repo.ErrNotFound {
+	if _, err := repo.FindNotify(c.Param("name")); errors.Is(err, repo.ErrNotFound) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "notify not found"})
 		return
 	} else if err != nil {
@@ -70,7 +72,7 @@ func updateNotifyCfg(c *gin.Context) {
 }
 
 func deleteNotifyCfg(c *gin.Context) {
-	if err := repo.DeleteNotify(c.Param("name")); err == repo.ErrNotFound {
+	if err := repo.DeleteNotify(c.Param("name")); errors.Is(err, repo.ErrNotFound) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "notify not found"})
 		return
 	} else if err != nil {
@@ -81,7 +83,7 @@ func deleteNotifyCfg(c *gin.Context) {
 }
 
 func validateNotify(n *models.NotifyConfig) error {
-	if !envNameRe.MatchString(n.Name) {
+	if !nameRe.MatchString(n.Name) {
 		return fmt.Errorf("notify name must match [a-z0-9][a-z0-9-]{0,62}")
 	}
 	if n.Type != models.NotifyFeishu && n.Type != models.NotifyDingTalk {

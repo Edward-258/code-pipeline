@@ -17,7 +17,7 @@ func CreateEnv(e *models.Env) error {
 	if e.CreatedAt.IsZero() {
 		e.CreatedAt = time.Now()
 	}
-	_, err := EnvColl.InsertOne(context.TODO(), e)
+	_, err := envColl.InsertOne(context.TODO(), e)
 	if mongo.IsDuplicateKeyError(err) {
 		return ErrExists
 	}
@@ -27,7 +27,7 @@ func CreateEnv(e *models.Env) error {
 // FindEnv / ListEnvs / DeleteEnv —— 与 workflow 集合同构的 CRUD（聚合根访问模式：整条读，从不 JOIN）
 func FindEnv(name string) (*models.Env, error) {
 	var e models.Env
-	err := EnvColl.FindOne(context.TODO(), bson.M{"_id": name}).Decode(&e)
+	err := envColl.FindOne(context.TODO(), bson.M{"_id": name}).Decode(&e)
 	if errors.Is(err, mongo.ErrNoDocuments) {
 		return nil, ErrNotFound
 	}
@@ -39,7 +39,7 @@ func FindEnv(name string) (*models.Env, error) {
 
 func ListEnvs() ([]*models.Env, error) {
 	opts := options.Find().SetSort(bson.D{{Key: "_id", Value: 1}})
-	cur, err := EnvColl.Find(context.TODO(), bson.M{}, opts)
+	cur, err := envColl.Find(context.TODO(), bson.M{}, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -58,7 +58,7 @@ func ListEnvs() ([]*models.Env, error) {
 
 // UpdateEnv —— 全量替换（name 是主键不可改，调用方已按路径名归一）；CreatedAt 同 workflow 纪律由旧档带过来
 func UpdateEnv(e *models.Env) error {
-	res, err := EnvColl.ReplaceOne(context.TODO(), bson.M{"_id": e.Name}, e)
+	res, err := envColl.ReplaceOne(context.TODO(), bson.M{"_id": e.Name}, e)
 	if err != nil {
 		return err
 	}
@@ -69,7 +69,7 @@ func UpdateEnv(e *models.Env) error {
 }
 
 func DeleteEnv(name string) error {
-	res, err := EnvColl.DeleteOne(context.TODO(), bson.M{"_id": name})
+	res, err := envColl.DeleteOne(context.TODO(), bson.M{"_id": name})
 	if err != nil {
 		return err
 	}

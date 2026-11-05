@@ -1,6 +1,8 @@
 package api
 
 import (
+	"errors"
+
 	"fmt"
 	"io"
 	"net/http"
@@ -23,7 +25,7 @@ func artifactKey(wf string, taskID int64, step string) string {
 	return fmt.Sprintf("%s-%d-%s", wf, taskID, step)
 }
 
-// PutArtifact POST /api/tasks/:name/:id/artifact/:step
+// putArtifact POST /api/tasks/:name/:id/artifact/:step
 // body = 原始 tar.gz 字节流（curl --data-binary）。任务必须存在（挡野上传），
 // 步骤名只做键的一部分不强校验（允许步骤还没跑完就先传的极端时序——GridFS 覆盖语义兜底）。
 func putArtifact(c *gin.Context) {
@@ -32,7 +34,7 @@ func putArtifact(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "task id must be a number"})
 		return
 	}
-	if _, err := repo.FindTask(c.Param("name"), taskID); err == repo.ErrNotFound {
+	if _, err := repo.FindTask(c.Param("name"), taskID); errors.Is(err, repo.ErrNotFound) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "task not found"})
 		return
 	} else if err != nil {
@@ -59,7 +61,7 @@ func putArtifact(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"stored": key})
 }
 
-// GetArtifact GET /api/tasks/:name/:id/artifact/:step —— 流式下载（不落盘不缓冲全量）
+// getArtifact GET /api/tasks/:name/:id/artifact/:step —— 流式下载（不落盘不缓冲全量）
 func getArtifact(c *gin.Context) {
 	taskID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {

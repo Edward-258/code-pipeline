@@ -79,12 +79,11 @@ func listTasks(c *gin.Context) {
 	f.To, _ = strconv.ParseInt(c.Query("to"), 10, 64)
 	f.Page, _ = strconv.ParseInt(c.Query("page"), 10, 64)
 	f.Size, _ = strconv.ParseInt(c.Query("size"), 10, 64)
-	items, total, err := repo.ListTasksFiltered(c.Param("name"), f)
+	items, total, f, err := repo.ListTasksFiltered(c.Param("name"), f)
 	if err != nil {
 		respond(c, http.StatusInternalServerError, err.Error())
 		return
 	}
-	f.Normalize() // 响应里的 page/size 要是归一化后的真实值
 	c.JSON(http.StatusOK, gin.H{"items": items, "total": total, "page": f.Page, "size": f.Size})
 }
 

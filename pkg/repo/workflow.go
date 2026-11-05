@@ -19,13 +19,13 @@ var (
 func CreateWorkflow(w *models.Workflow) error {
 	w.CreatedAt = time.Now()
 	w.UpdatedAt = w.CreatedAt
-	_, err := WorkflowColl.InsertOne(context.TODO(), w)
+	_, err := workflowColl.InsertOne(context.TODO(), w)
 	return err
 }
 
 func FindWorkflow(name string) (*models.Workflow, error) {
 	var w models.Workflow
-	err := WorkflowColl.FindOne(context.TODO(), bson.M{"_id": name}).Decode(&w)
+	err := workflowColl.FindOne(context.TODO(), bson.M{"_id": name}).Decode(&w)
 	if errors.Is(err, mongo.ErrNoDocuments) {
 		return nil, ErrNotFound
 	}
@@ -36,7 +36,7 @@ func FindWorkflow(name string) (*models.Workflow, error) {
 }
 
 func ListWorkflows() ([]*models.Workflow, error) {
-	cur, err := WorkflowColl.Find(context.TODO(), bson.M{})
+	cur, err := workflowColl.Find(context.TODO(), bson.M{})
 	if err != nil {
 		return nil, err
 	}
@@ -57,7 +57,7 @@ func ListWorkflows() ([]*models.Workflow, error) {
 // CreatedAt 由调用方从旧档带过来：图纸的出身不许被更新改写。
 func UpdateWorkflow(w *models.Workflow) error {
 	w.UpdatedAt = time.Now()
-	res, err := WorkflowColl.ReplaceOne(context.TODO(), bson.M{"_id": w.Name}, w)
+	res, err := workflowColl.ReplaceOne(context.TODO(), bson.M{"_id": w.Name}, w)
 	if err != nil {
 		return err
 	}
@@ -70,6 +70,6 @@ func UpdateWorkflow(w *models.Workflow) error {
 // DeleteWorkflow —— Zadig 的做法是连带软删历史任务（is_deleted: true）
 // 学习版：图纸硬删，任务档案保留（审计需求，删档只应发生在保留策略里）
 func DeleteWorkflow(name string) error {
-	_, err := WorkflowColl.DeleteOne(context.TODO(), bson.M{"_id": name})
+	_, err := workflowColl.DeleteOne(context.TODO(), bson.M{"_id": name})
 	return err
 }
