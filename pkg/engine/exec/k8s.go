@@ -60,7 +60,7 @@ func (K8sJobCtl) Run(c *Ctx, jt *models.JobTask) error {
 		c.Mu.Lock()
 		jt.Retry++
 		resetForRetry(jt)
-		ackTask(c.Task)
+		c.Ack(c.Task)
 		c.Mu.Unlock()
 		log.Printf("exec: task %s/%d job %q failed (%v), retry %d/%d", c.Task.WorkflowName, c.Task.TaskID, jt.Name, err, jt.Retry, maxRetry)
 	}
@@ -114,7 +114,7 @@ func runK8sJobOnce(c *Ctx, jt *models.JobTask) error {
 		if logText, lerr := k8s.PodLog(c.Client, c.NS, jt.K8sJobName); lerr == nil {
 			c.Mu.Lock()
 			if step.ApplyStepBanners(jt, logText, time.Now()) {
-				ackTask(c.Task)
+				c.Ack(c.Task)
 			}
 			c.Mu.Unlock()
 		}
@@ -156,7 +156,7 @@ func (K8sJobCtl) SaveInfo(c *Ctx, jt *models.JobTask) error {
 	step.ApplyStepBanners(jt, fullLog, time.Now()) // 补最后一拍可能漏掉的 END banner
 	step.SliceStepLogs(jt, fullLog)                // 切分要在 finalize 前：AfterRun 读的是切好的 Log
 	stepErr := step.FinalizeSteps(jt)              // created→skipped / 悬空 running→failed / AfterRun 门禁 / 截断
-	ackTask(c.Task)
+	c.Ack(c.Task)
 	c.Mu.Unlock()
 	if stepErr != "" {
 		return fmt.Errorf("%s", stepErr)
