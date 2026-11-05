@@ -53,6 +53,43 @@ func ListEnvs(c *gin.Context) {
 	c.JSON(http.StatusOK, list)
 }
 
+// UpdateEnv PUT /api/envs/:name —— name 是主键不可改（改=新建+删旧），
+// 只更新 namespace/desc；CreatedAt 从旧档带过来
+func UpdateEnv(c *gin.Context) {
+	var e models.Env
+	if err := c.ShouldBindJSON(&e); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if e.Name != "" && e.Name != c.Param("name") {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "env name in body does not match URL path"})
+		return
+	}
+	e.Name = c.Param("name")
+	if !envNameRe.MatchString(e.Name) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "env name must match [a-z0-9][a-z0-9-]{0,62}"})
+		return
+	}
+	if e.Namespace == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "namespace is required"})
+		return
+	}
+	old, err := repo.FindEnv(e.Name)
+	if err == repo.ErrNotFound {
+		c.JSON(http.StatusNotFound, gin.H{"error": "env not found"})
+		return
+	} else if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	e.CreatedAt = old.CreatedAt
+	if err := repo.UpdateEnv(&e); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, e)
+}
+
 // DeleteEnv DELETE /api/envs/:name
 func DeleteEnv(c *gin.Context) {
 	if err := repo.DeleteEnv(c.Param("name")); err == repo.ErrNotFound {
