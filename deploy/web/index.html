@@ -71,7 +71,7 @@ const post = (path, body) => api(path, {method:"POST", headers:{"Content-Type":"
 const del = path => api(path, {method:"DELETE"});
 const h = (s) => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const stTag = s => `<span class="st ${s}">${s}</span>`;
-const ts = u => u ? new Date(u*1000).toLocaleTimeString() : "-";
+const ts = u => u ? new Date(typeof u === "number" ? u*1000 : u).toLocaleTimeString() : "-"; // created_at 是 RFC3339 字符串、start/end_time 是 unix 秒，两种都吃
 
 let tab = "wf", timer = null;
 let curWf = null, curTask = null, taskPage = 1, taskFilter = {status:"", creator:""};
@@ -211,7 +211,7 @@ async function openTask(id, keep) {
               <pre id="log-${h(s.name)}-${h(j.name)}-${h(sp.name)}" style="display:none"></pre>
           `).join("")}</ul>
         </li>`).join("")}</ul>
-    </li>`).join("")}`;
+    </li>`).join("");
   d.innerHTML = `
     <div class="row"><b>${h(t.id)}</b> ${stTag(t.status)}
       ${t.error ? `<span class="st failed">${h(t.error)}</span>` : ""}
