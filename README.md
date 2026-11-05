@@ -55,11 +55,12 @@
 - **release**：`POST …/stages/:stage/release` 翻闸门续跑（releaseMu 防双击）
 - **IM 通知**：notify 集合 CRUD；任务终态 fire-and-forget（1 重试，失败只记日志）；飞书/钉钉双报文 + 双平台加签；纯数据取消不发通知（无看护人在场）
 
-### 前端（半吊子但有真执行门）
+### 前端（React + nginx 独立 Pod，有真执行门）
 
-- 单 HTML 原生 JS + fetch 2s 轮询，`go:embed` 进二进制随镜像走，不上框架
-- 五页签：工作流（JSON 编辑，保存=删除重建）/ 任务（过滤分页 + 详情三级树 + 分步日志 + TestResult + artifact 下载 + cancel/retry/clone/approve/release）/ 环境 / 通知 / 定时（含 fire）
-- 质量门：验收脚本对 ingress 实吐字节跑 `node --check` 语法门 + jsdom 真执行冒烟（9 断言）——"字符串在位"≠"脚本活着"
+- React 18 + TypeScript(strict) + antd 5（Vite 构建），独立 nginx 镜像跑 Pod：ingress 统一入口，nginx 反代 `/api`、`/healthz` 到引擎（envsubst 模板 + 运行时 resolver）
+- **可视化多阶段编辑器**：stage 管道卡片（并行开关 + 审批闸门 any/all）→ job（freestyle/deploy 二选一，镜像自动/自定义、retry/超时/错误策略、deploy 靶标 env 下拉）→ 5 种步骤表单（shell 支持本地脚本导入 + 手写、git、docker_build、junit 门禁、archive）+ JSON 双模逃生舱；保存走 PUT（真更新，非删除重建）
+- 任务详情三级树 + 分步日志抽屉 + cancel/retry/clone/approve/release；环境/通知/定时完整 CRUD（编辑/启用开关/手动点火）
+- 质量门：tsc strict 零错构建 + 验收脚本对 ingress 实吐字节跑 bundle ESM 语法门 + jsdom 真执行冒烟（React 真挂载/真路由切换/真引擎数据）——"字符串在位"≠"脚本活着"
 
 ### 自举彩蛋（已活体闭环）
 
