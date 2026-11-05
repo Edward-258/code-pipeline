@@ -11,6 +11,8 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"pipeline/pkg/engine"
+	"pipeline/pkg/engine/cancel"
+	"pipeline/pkg/k8s"
 	"pipeline/pkg/models"
 	"pipeline/pkg/repo"
 )
@@ -99,11 +101,11 @@ func CancelTask(c *gin.Context) {
 		return
 	}
 
-	if engine.CancelRequested(t.ID) {
+	if cancel.Request(t.ID) {
 		c.JSON(http.StatusAccepted, gin.H{"accepted": true, "note": "caretaker will collect within one poll"})
 		return
 	}
-	engine.CancelTree(t)
+	cancel.Tree(t)
 	if err := repo.UpdateTask(t); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -202,7 +204,7 @@ func CloneTask(c *gin.Context) {
 		return
 	}
 	nt := engine.BuildTask(t.WorkflowArgs, taskID) // 快照再快照：两层快照互不共享指针，各是各的档案
-	nt.Creator = "clone:" + t.ID            // 出身标记：从哪个任务克隆来的
+	nt.Creator = "clone:" + t.ID                   // 出身标记：从哪个任务克隆来的
 	if err := repo.CreateTask(nt); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -322,7 +324,7 @@ func GetTaskLog(c *gin.Context) {
 	}
 
 	// 活的：K8s Job 还在 → 实时尾部（分界面 live 日志的来源）
-	if txt, live := engine.TailJobLog(jt.K8sJobName); live {
+	if txt, live := k8s.TailJobLog(jt.K8sJobName); live {
 		c.String(http.StatusOK, txt)
 		return
 	}
@@ -352,4 +354,3 @@ func GetTaskLog(c *gin.Context) {
 }
 
 // ---------- 图纸 → 运行实例 ----------
-

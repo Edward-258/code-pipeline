@@ -14,7 +14,7 @@ import (
 
 // 产物上传/下载（T2.4，对照 Zadig step_archive 的 S3 环节砍成 GridFS）。
 // 上传方 = Pod 内 archive 步骤的 curl（MP_ENGINE_URL/MP_TASK_WF/MP_TASK_ID 注入，
-// 见 engine/stepctl.go ArchiveCtl）；下载方 = 人 / 前端 / 下游消费。
+// 见 pkg/step/stepctl.go ArchiveCtl）；下载方 = 人 / 前端 / 下游消费。
 
 const maxArtifactSize = 32 << 20 // 32MB 上限（学习版定死；GridFS 不是网盘）
 

@@ -1,4 +1,4 @@
-package engine
+package step
 
 import (
 	"bytes"
@@ -50,8 +50,8 @@ func TestDriverRoundtrip(t *testing.T) {
 	}
 
 	jt := jobWithSteps("first", "boom", "never")
-	applyStepBanners(jt, string(out), now)
-	sliceStepLogs(jt, string(out))
+	ApplyStepBanners(jt, string(out), now)
+	SliceStepLogs(jt, string(out))
 
 	// T1.2：OUTPUT banner 收割——mp_output 助手与裸 echo 双路都要进 jt.Outputs
 	if jt.Outputs["BUILD_ID"] != "42" || jt.Outputs["RAW"] != "ok" {
@@ -70,7 +70,7 @@ func TestDriverRoundtrip(t *testing.T) {
 	if strings.Contains(string(out), "SHOULD-NOT-RUN") {
 		t.Error("fail-stop broken: step after failure ran")
 	}
-	summary := finalizeSteps(jt)
+	summary := FinalizeSteps(jt)
 	if jt.Steps[2].Status != models.StatusSkipped {
 		t.Errorf("never: %s", jt.Steps[2].Status)
 	}

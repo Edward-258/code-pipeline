@@ -1,4 +1,4 @@
-package engine
+package cron
 
 import (
 	"fmt"
@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"pipeline/pkg/engine"
 	"pipeline/pkg/repo"
 )
 
@@ -15,7 +16,7 @@ import (
 // 手搓 5 段匹配器（支持 * / */n / n / a-b / 逗号列表），零新依赖。
 // 触发动作 = TriggerWorkflow 正常入队（不吃并发插队，同 wf 串行由队列保证）。
 
-func StartCronScheduler() {
+func Start() {
 	for {
 		// 对齐到下一个整分钟：crontab 语义就是"分钟级"，从半分钟起跳的 ticker 会漂移
 		now := time.Now()
@@ -37,7 +38,7 @@ func cronTick(now time.Time) {
 		if !c.Enabled {
 			continue
 		}
-		ok, err := MatchCrontab(c.Crontab, now)
+		ok, err := Match(c.Crontab, now)
 		if err != nil {
 			log.Printf("cron %q: bad crontab %q: %v", c.Name, c.Crontab, err)
 			continue
@@ -45,7 +46,7 @@ func cronTick(now time.Time) {
 		if !ok {
 			continue
 		}
-		t, err := TriggerWorkflow(c.WorkflowName, "cron:"+c.Name)
+		t, err := engine.TriggerWorkflow(c.WorkflowName, "cron:"+c.Name)
 		if err != nil {
 			log.Printf("cron %q: trigger %q: %v", c.Name, c.WorkflowName, err)
 			continue
@@ -54,10 +55,10 @@ func cronTick(now time.Time) {
 	}
 }
 
-// MatchCrontab —— 5 段 crontab（分 时 日 月 周）匹配给定时刻。
+// Match —— 5 段 crontab（分 时 日 月 周）匹配给定时刻。
 // 字段语法：* | */n | n | a-b | 逗号混合（"0,15,30" / "1-5" / "*/2" 可混用）。
 // 星期域 0/7 = 周日（crontab 惯例）。
-func MatchCrontab(expr string, t time.Time) (bool, error) {
+func Match(expr string, t time.Time) (bool, error) {
 	fields := strings.Fields(expr)
 	if len(fields) != 5 {
 		return false, fmt.Errorf("want 5 fields, got %d", len(fields))

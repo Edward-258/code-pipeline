@@ -51,8 +51,12 @@ ensure_wf <<'EOF'
   {"name":"j","type":"freestyle","spec":{"steps":[{"name":"main","type":"shell","script":"sleep 4; echo done"}]}}]}]}
 EOF
 T1=$(run_wf mvp1-queue); T2=$(run_wf mvp1-queue)
-assert_eq "run1 立即入队" "$(field "$(task mvp1-queue "$T1")" .status)" "queued"
-assert_eq "run2 立即入队" "$(field "$(task mvp1-queue "$T2")" .status)" "queued"
+# 派发器 1s 一拍：本机引擎下 GET 可能晚于首拍——queued|running 都证明"run 即返回不阻塞"
+# （2026-11-06 活体：快机器上 queued 竞速必输，断言放宽；同 wf 串行由下两断言承担）
+ST1=$(field "$(task mvp1-queue "$T1")" .status)
+case "$ST1" in queued|running) ok "run1 立即入队（$ST1）";; *) bad "run1 立即入队: got=$ST1";; esac
+ST2=$(field "$(task mvp1-queue "$T2")" .status)
+case "$ST2" in queued|running) ok "run2 立即入队（$ST2）";; *) bad "run2 立即入队: got=$ST2";; esac
 for i in $(seq 1 15); do [ "$(field "$(task mvp1-queue "$T1")" .status)" = "running" ] && break; sleep 1; done
 assert_eq "t1 派发 running"  "$(field "$(task mvp1-queue "$T1")" .status)" "running"
 assert_eq "t2 同 wf 串行排队" "$(field "$(task mvp1-queue "$T2")" .status)" "queued"
@@ -114,7 +118,8 @@ echo "== 幕5 克隆：快照 → 新号 → 自动跑 =="
 CC=$(curl -sk -X POST "$BASE/api/tasks/mvp1-outputs/$TO/clone")
 CN=$(field "$CC" .id); CT=$(field "$CC" .task_id)
 assert_has "creator 出身标记" "$CC" "clone:mvp1-outputs-$TO"
-assert_eq "新 task 立即入队" "$(field "$CC" .status)" "queued"
+SCC=$(field "$CC" .status)
+case "$SCC" in queued|running) ok "新 task 立即入队（$SCC）";; *) bad "新 task 立即入队: got=$SCC";; esac
 CCF=$(wait_status mvp1-outputs "$CT" passed 60)
 assert_eq "克隆任务 passed ($CN)" "$(field "$CCF" .status)" "passed"
 assert_has "克隆任务 outputs 重新收割" "$(field "$CCF" '.global_context["build.MSG"]')" "hello-from-build"

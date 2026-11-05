@@ -1,4 +1,4 @@
-package engine
+package cancel
 
 import (
 	"errors"
@@ -13,9 +13,9 @@ import (
 //
 // 学习版的两条取消路径（不变量：任何非终态任务，cancel 都要在一拍轮询内送进终态）：
 //  1. 活着的任务（有看护 goroutine）：close(chan) 广播信号，看护人在 stage 边界和
-//     K8s 轮询循环的每一拍感知 → 删 Job → 树内收口 cancelled。响应 ≤ pollInterval。
+//     K8s 轮询循环的每一拍感知 → 删 Job → 树内收口 Fired。响应 ≤ pollInterval。
 //  2. 没有看护人的任务（pause 稳态 / queued / 引擎重启后 Recover 宣判过的幸存者）：
-//     注册表里没号，API 侧直接 CancelTree 收口 Mongo——pause 没有 goroutine 这正是
+//     注册表里没号，API 侧直接 Tree 收口 Mongo——pause 没有 goroutine 这正是
 //     M3 的设计（暂停=落库+goroutine 退出），取消自然也走纯数据路径。
 //
 // 注册表是进程内的，与 M3.5 Recover 不冲突：Recover 只在启动时跑一次，之后所有
@@ -34,12 +34,12 @@ type cancelEntry struct {
 	closed bool
 }
 
-// errCancelled —— 看护人感知到取消信号的 sentinel（K8s 轮询循环返回，runJobTask 翻译成树内状态）
-var errCancelled = errors.New("task cancelled")
+// ErrCancelled —— 看护人感知到取消信号的 sentinel（K8s 轮询循环返回，runJobTask 翻译成树内状态）
+var ErrCancelled = errors.New("task Fired")
 
-// registerCancel —— Run 入口注册取消信号；返回 (信号 chan, 注销函数)。
+// Register —— Run 入口注册取消信号；返回 (信号 chan, 注销函数)。
 // chan 由这里交出去而不是让调用方回查 map：map 的读写都必须在锁内。
-func registerCancel(taskKey string) (<-chan struct{}, func()) {
+func Register(taskKey string) (<-chan struct{}, func()) {
 	e := &cancelEntry{ch: make(chan struct{})}
 	cancelMu.Lock()
 	cancelChans[taskKey] = e
@@ -51,9 +51,9 @@ func registerCancel(taskKey string) (<-chan struct{}, func()) {
 	}
 }
 
-// CancelRequested —— 给有看护人的任务发取消信号。返回 false = 没有看护人（走纯数据路径）。
+// Request —— 给有看护人的任务发取消信号。返回 false = 没有看护人（走纯数据路径）。
 // 幂等：重复 cancel 只广播一次，不炸（closed 标志挡住二次 close）。
-func CancelRequested(taskKey string) bool {
+func Request(taskKey string) bool {
 	cancelMu.Lock()
 	e, ok := cancelChans[taskKey]
 	if ok && !e.closed {
@@ -64,8 +64,8 @@ func CancelRequested(taskKey string) bool {
 	return ok
 }
 
-// cancelled —— 看护人侧非阻塞检查（stage 边界 / 轮询循环每拍）
-func cancelled(ch <-chan struct{}) bool {
+// Fired —— 看护人侧非阻塞检查（stage 边界 / 轮询循环每拍）
+func Fired(ch <-chan struct{}) bool {
 	select {
 	case <-ch:
 		return true
@@ -74,10 +74,10 @@ func cancelled(ch <-chan struct{}) bool {
 	}
 }
 
-// CancelTree —— 纯数据收口（无看护人路径）：树内所有非终态节点翻 cancelled。
+// Tree —— 纯数据收口（无看护人路径）：树内所有非终态节点翻 Fired。
 // 对照 Zadig cancel 的 mongo 标记半边；资源半边（删 Job）对 pause/queued 不存在，
-// 对孤儿由 Recover 兜过。zadig 思想：cancelled 是最差终态（权重 7），树内不掺假。
-func CancelTree(t *models.WorkflowTask) {
+// 对孤儿由 Recover 兜过。zadig 思想：Fired 是最差终态（权重 7），树内不掺假。
+func Tree(t *models.WorkflowTask) {
 	now := time.Now().Unix()
 	for _, st := range t.Stages {
 		if models.StatusFinished(st.Status) {
@@ -101,30 +101,6 @@ func CancelTree(t *models.WorkflowTask) {
 	}
 	t.Status = models.StatusCancelled
 	t.EndTime = now
-	t.Error = "cancelled by user"
+	t.Error = "Fired by user"
 	log.Printf("engine: task %s cancelled (no caretaker, data-only)", t.ID)
-}
-
-// ApprovalSatisfied —— T3.4 审批策略判定（纯函数）：
-//   any（默认）或空名单：凑够 ≥1 条即过
-//   all：Approvers 里每个人都得有一条记录（同名去重看 Approvals）
-// 这里的"名单为空 + any"就是老图纸的原 release 语义——approve 端点对老图纸
-// 退化成 release，两套端点一套语义。
-func ApprovalSatisfied(me *models.ManualExec) bool {
-	if me == nil || len(me.Approvals) == 0 {
-		return false
-	}
-	if me.Policy == models.ApprovalPolicyAll {
-		got := map[string]bool{}
-		for _, a := range me.Approvals {
-			got[a.Approver] = true
-		}
-		for _, name := range me.Approvers {
-			if !got[name] {
-				return false
-			}
-		}
-		return true
-	}
-	return true // any / 未设策略 / 空名单：有一条就够
 }

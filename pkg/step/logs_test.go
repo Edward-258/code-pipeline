@@ -1,4 +1,4 @@
-package engine
+package step
 
 import (
 	"strings"
@@ -22,7 +22,7 @@ func jobWithSteps(names ...string) *models.JobTask {
 func TestApplyStepBanners(t *testing.T) {
 	jt := jobWithSteps("a", "b")
 	log1 := "===MP=== STEP-START a\ngit clone ...\n===MP=== STEP-END a passed exit=0\n"
-	if !applyStepBanners(jt, log1, now) {
+	if !ApplyStepBanners(jt, log1, now) {
 		t.Fatal("first feed should report change")
 	}
 	if jt.Steps[0].Status != models.StatusPassed || jt.Steps[0].StartTime != now.Unix() || jt.Steps[0].EndTime != now.Unix() {
@@ -31,7 +31,7 @@ func TestApplyStepBanners(t *testing.T) {
 
 	// 幂等：重放同一份日志不产生变化、不覆盖时间戳
 	jt.Steps[0].EndTime = 1
-	if applyStepBanners(jt, log1, now.Add(time.Hour)) {
+	if ApplyStepBanners(jt, log1, now.Add(time.Hour)) {
 		t.Fatal("replay should be a no-op")
 	}
 	if jt.Steps[0].EndTime != 1 {
@@ -40,14 +40,14 @@ func TestApplyStepBanners(t *testing.T) {
 
 	// 失败 verdict + 带空格的步骤名 + 畸形行 + 未知步骤名：都不许 panic
 	log2 := "garbage line\n===MP=== STEP-START b\n===MP=== BOGUS x\n===MP=== STEP-END b failed exit=3\n===MP=== STEP-END nobody passed exit=0\n"
-	applyStepBanners(jt, log2, now)
+	ApplyStepBanners(jt, log2, now)
 	if jt.Steps[1].Status != models.StatusFailed || jt.Steps[1].Error != "exit=3" {
 		t.Fatalf("step b should be failed with exit code: %+v", jt.Steps[1])
 	}
 
-	// START 后暴死（有始无终）：保持 running，交给 finalizeSteps 收口
+	// START 后暴死（有始无终）：保持 running，交给 FinalizeSteps 收口
 	jt2 := jobWithSteps("x")
-	applyStepBanners(jt2, "===MP=== STEP-START x\n...", now)
+	ApplyStepBanners(jt2, "===MP=== STEP-START x\n...", now)
 	if jt2.Steps[0].Status != models.StatusRunning {
 		t.Fatalf("step x should be running: %s", jt2.Steps[0].Status)
 	}
@@ -55,11 +55,11 @@ func TestApplyStepBanners(t *testing.T) {
 	// 黏连 banner（真实事故：printf 无尾换行的 XML 把 END 黏在同一行）——行中 banner 也要认
 	jt3 := jobWithSteps("gen")
 	glued := "===MP=== STEP-START gen\n<?xml version=\"1.0\"?><testsuite tests=\"1\"></testsuite>===MP=== STEP-END gen passed exit=0\n"
-	applyStepBanners(jt3, glued, now)
+	ApplyStepBanners(jt3, glued, now)
 	if jt3.Steps[0].Status != models.StatusPassed {
 		t.Fatalf("glued banner should parse: %s", jt3.Steps[0].Status)
 	}
-	sliceStepLogs(jt3, glued)
+	SliceStepLogs(jt3, glued)
 	if !strings.Contains(jt3.Steps[0].Log, "<testsuite") {
 		t.Fatalf("glued step log should keep xml: %q", jt3.Steps[0].Log)
 	}
@@ -77,7 +77,7 @@ func TestApplyStepBannersOutputs(t *testing.T) {
 		"===MP=== OUTPUT NOEQUALS\n" + // 畸形：无 '='，跳过
 		"===MP=== OUTPUT =blank\n" + // 畸形：空键，跳过
 		"===MP=== STEP-END emit passed exit=0\n"
-	if !applyStepBanners(jt, log1, now) {
+	if !ApplyStepBanners(jt, log1, now) {
 		t.Fatal("outputs should report change")
 	}
 	want := map[string]string{"IMAGE": "reg/app:v1", "TAG": "latest", "KV": "a=b", "EMPTY": ""}
@@ -91,12 +91,12 @@ func TestApplyStepBannersOutputs(t *testing.T) {
 	}
 
 	// 幂等：重放同值日志 → 无变化不 ack
-	if applyStepBanners(jt, log1, now) {
+	if ApplyStepBanners(jt, log1, now) {
 		t.Error("replay of same outputs should be a no-op")
 	}
 
 	// 覆盖：同名键新值 → 收割并报变化（重放语义 = 最后出现的值生效）
-	if !applyStepBanners(jt, "===MP=== OUTPUT IMAGE=reg/app:v2\n", now) {
+	if !ApplyStepBanners(jt, "===MP=== OUTPUT IMAGE=reg/app:v2\n", now) {
 		t.Error("value change should report change")
 	}
 	if jt.Outputs["IMAGE"] != "reg/app:v2" {
@@ -110,7 +110,7 @@ func TestSliceStepLogs(t *testing.T) {
 	full := "===MP=== STEP-START a\nout-a1\nout-a2\n===MP=== STEP-END a passed exit=0\n" +
 		"===MP=== STEP-START b\nout-b1\n===MP=== STEP-END b failed exit=9\n" +
 		"===MP=== STEP-START ghost\nout-ghost\n===MP=== STEP-END ghost passed exit=0\n"
-	sliceStepLogs(jt, full)
+	SliceStepLogs(jt, full)
 
 	if !strings.Contains(jt.Steps[0].Log, "out-a1") || !strings.Contains(jt.Steps[0].Log, "STEP-END a") || strings.Contains(jt.Steps[0].Log, "out-b1") {
 		t.Errorf("step a log wrong: %q", jt.Steps[0].Log)
@@ -140,7 +140,7 @@ func TestFinalizeSteps(t *testing.T) {
 		{Name: "tests", Status: models.StatusPassed, Log: `<testsuite tests="2" failures="1" time="0.1"></testsuite>`},
 	}
 
-	errSummary := finalizeSteps(jt)
+	errSummary := FinalizeSteps(jt)
 	if jt.Steps[1].Status != models.StatusFailed || !strings.Contains(jt.Steps[1].Error, "did not finish") {
 		t.Errorf("hung step: %+v", jt.Steps[1])
 	}
@@ -157,7 +157,7 @@ func TestFinalizeSteps(t *testing.T) {
 	// 截断：>64KB 的日志保尾部
 	jt2 := &models.JobTask{}
 	jt2.Steps = []*models.StepTask{{Name: "big", Status: models.StatusPassed, Log: strings.Repeat("x", maxStepLog+4096)}}
-	finalizeSteps(jt2)
+	FinalizeSteps(jt2)
 	if len(jt2.Steps[0].Log) > maxStepLog+64 || !strings.HasPrefix(jt2.Steps[0].Log, "\n...[log truncated") {
 		t.Errorf("truncation failed: len=%d head=%q", len(jt2.Steps[0].Log), jt2.Steps[0].Log[:40])
 	}

@@ -1,20 +1,22 @@
-package engine
+package exec
 
 import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes/fake"
 	ktesting "k8s.io/client-go/testing"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 
+	"pipeline/pkg/engine/cancel"
 	"pipeline/pkg/models"
 )
 
@@ -30,7 +32,7 @@ func fastPoll(t *testing.T) {
 	t.Cleanup(func() { pollInterval, rolloutWaitTimeout = oldPoll, oldWait })
 }
 
-func deployFixture(t *testing.T, mutate func(*appsv1.Deployment)) (*taskCtx, *models.JobTask, *fake.Clientset) {
+func deployFixture(t *testing.T, mutate func(*appsv1.Deployment)) (*Ctx, *models.JobTask, *fake.Clientset) {
 	t.Helper()
 	dep := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{Name: "nginx", Namespace: "mvp-dev"},
@@ -49,7 +51,7 @@ func deployFixture(t *testing.T, mutate func(*appsv1.Deployment)) (*taskCtx, *mo
 	ds := &models.DeploySpec{Env: "dev", DeploymentName: "nginx", ContainerName: "web", Image: "nginx:2.0"}
 	jt := &models.JobTask{Name: "ship", JobType: models.JobTypeDeploy, DeploySpec: ds}
 	tk := &models.WorkflowTask{ID: "wf-1", WorkflowName: "wf", TaskID: 1}
-	tc := &taskCtx{client: fc, ns: "pipeline", t: tk}
+	tc := &Ctx{Client: fc, NS: "pipeline", Task: tk, Mu: &sync.Mutex{}}
 
 	old := envResolver
 	envResolver = func(string) (string, error) { return "mvp-dev", nil }
@@ -131,7 +133,7 @@ func TestDeployBadEnv(t *testing.T) {
 	}
 }
 
-// 取消感知：轮询循环一拍内返回 errCancelled（patch 已发生不回滚，取消≠撤销部署）
+// 取消感知：轮询循环一拍内返回 cancel.ErrCancelled（patch 已发生不回滚，取消≠撤销部署）
 func TestDeployCancelDuringWait(t *testing.T) {
 	fastPoll(t)
 	tc, jt, _ := deployFixture(t, func(d *appsv1.Deployment) {
@@ -140,8 +142,8 @@ func TestDeployCancelDuringWait(t *testing.T) {
 	})
 	ch := make(chan struct{})
 	close(ch)
-	tc.cancelCh = ch
-	if err := (DeployJobCtl{}).Run(tc, jt); err != errCancelled {
-		t.Fatalf("want errCancelled, got %v", err)
+	tc.CancelCh = ch
+	if err := (DeployJobCtl{}).Run(tc, jt); err != cancel.ErrCancelled {
+		t.Fatalf("want cancel.ErrCancelled, got %v", err)
 	}
 }

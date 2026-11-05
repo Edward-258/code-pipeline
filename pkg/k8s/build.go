@@ -1,4 +1,4 @@
-package engine
+package k8s
 
 import (
 	"fmt"
@@ -18,11 +18,11 @@ import (
 // K8s 资源名约束：dns-1123（小写字母数字与 '-'，≤63 字符）
 var jobNameSanitizer = regexp.MustCompile(`[^a-z0-9-]+`)
 
-// jobName —— 命名规则 mp-<wf>-<taskID>-<stage>-<job>（对照 Zadig 的 job-<taskID>-… 前缀保唯一）。
+// JobName —— 命名规则 mp-<wf>-<taskID>-<stage>-<job>（对照 Zadig 的 job-<taskID>-… 前缀保唯一）。
 // ⚠️ workflow 名必须进名字（T1.6 活体验收抓的老雷）：只有 taskID 时，两个不同 workflow
 // 的同号任务 + 同名 stage/job = 同一个 K8s Job 名，幂等 Delete 会删掉别人家的 Job、
 // Clean 会掀掉别人正在轮询的执行物。wf 名在任务档案里唯一（图纸名即主键），进名字后全局唯一。
-func jobName(wfName string, taskID int64, stage, job string) string {
+func JobName(wfName string, taskID int64, stage, job string) string {
 	name := fmt.Sprintf("mp-%s-%d-%s-%s", wfName, taskID, stage, job)
 	name = strings.ToLower(name)
 	name = jobNameSanitizer.ReplaceAllString(name, "-")
@@ -33,14 +33,14 @@ func jobName(wfName string, taskID int64, stage, job string) string {
 	return name
 }
 
-// buildJob —— 把 JobTask 翻译成 K8s Job（对照 Zadig jobcontroller/kubernetes.go 的极简版）
+// BuildJob —— 把 JobTask 翻译成 K8s Job（对照 Zadig jobcontroller/kubernetes.go 的极简版）
 //
 //	驱动脚本直接拼进 sh -c（我们的 jobexecutor = 引擎代码生成的 bash，见 driver.go）
 //	backoffLimit=0 + RestartPolicy=Never：Pod 退出码 = job 结果，不重试（决断 #3 语义根基）
 //	镜像三档：显式指定 > git/docker_build 在场用 pipeline-runner > 纯 shell 用 busybox。
 //	runner 在 ACR 是私有镜像（与引擎镜像同实例，决断 #12 同链路），Job Pod 必须自带 pull secret——
 //	引擎 Deployment 挂的 imagePullSecrets 不会继承给运行时创建的 Job
-func buildJob(namespace string, t *models.WorkflowTask, jt *models.JobTask, script string) *batchv1.Job {
+func BuildJob(namespace string, t *models.WorkflowTask, jt *models.JobTask, script string) *batchv1.Job {
 	spec := jt.Spec
 	image := spec.Image
 	if image == "" {

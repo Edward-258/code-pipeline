@@ -1,4 +1,4 @@
-package engine
+package notify
 
 import (
 	"crypto/hmac"

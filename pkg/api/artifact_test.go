@@ -6,14 +6,12 @@ import (
 	"fmt"
 	"net/http/httptest"
 	"os/exec"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/gin-gonic/gin"
 
 	"pipeline/pkg/config"
-	"pipeline/pkg/engine"
 	"pipeline/pkg/models"
 	"pipeline/pkg/repo"
 )
@@ -123,26 +121,5 @@ func TestArtifactOversizedRejected(t *testing.T) {
 	defer resp.Body.Close()
 	if resp.StatusCode != 413 {
 		t.Fatalf("oversized upload status = %d, want 413", resp.StatusCode)
-	}
-}
-
-// 驱动脚本侧：archive 步骤生成 tar+curl 片段；缺 glob 生成期报错
-func TestArchiveDriverGeneration(t *testing.T) {
-	steps := []*models.StepSpec{{Name: "pack", Type: models.StepArchive, ArtifactGlob: "dist/*.tgz", ArtifactName: "out.tgz"}}
-	script, err := engine.GenerateDriverScript(steps)
-	if err != nil {
-		t.Fatalf("generate: %v", err)
-	}
-	for _, want := range []string{
-		"tar czf /tmp/mp-artifact.tgz dist/*.tgz",
-		"wget -q -O- --post-file=/tmp/mp-artifact.tgz",
-		`"$MP_ENGINE_URL/api/tasks/$MP_TASK_WF/$MP_TASK_ID/artifact/out.tgz"`,
-	} {
-		if !strings.Contains(script, want) {
-			t.Errorf("script missing %q", want)
-		}
-	}
-	if _, err := engine.GenerateDriverScript([]*models.StepSpec{{Name: "bad", Type: models.StepArchive}}); err == nil {
-		t.Error("archive without artifact_glob should fail at generate time")
 	}
 }

@@ -63,7 +63,7 @@ func TestWebhookSignatureFlow(t *testing.T) {
 		{Repo: "Edward-258/code-pipeline", Branch: "master", Secret: "hushhush"},
 	})
 	payload, _ := json.Marshal(map[string]any{
-		"ref": "refs/heads/master",
+		"ref":        "refs/heads/master",
 		"repository": map[string]any{"full_name": "Edward-258/code-pipeline"},
 	})
 
