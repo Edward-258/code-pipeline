@@ -5,5 +5,5 @@
 # 本机直推公网端点，集群 kubelet 经 VPC 端点拉取）。
 FROM alpine:3.20
 RUN sed -i 's#dl-cdn.alpinelinux.org#mirrors.aliyun.com#g' /etc/apk/repositories \
-    && apk add --no-cache git docker-cli ca-certificates
+    && apk add --no-cache git docker-cli curl ca-certificates
 WORKDIR /workspace

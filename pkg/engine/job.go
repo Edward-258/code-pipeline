@@ -111,10 +111,11 @@ func buildJob(namespace string, t *models.WorkflowTask, jt *models.JobTask, scri
 	}
 }
 
-// jobNeedsRunner —— git/docker_build 步骤需要 busybox 没有的工具（git、docker CLI）
+// jobNeedsRunner —— git/docker_build/archive 步骤需要 busybox 没有的工具
+// （git、docker CLI、curl——archive 上传依赖 curl，busybox wget --post-file 会截断 POST body）
 func jobNeedsRunner(spec *models.FreestyleSpec) bool {
 	for _, s := range spec.EffectiveSteps() {
-		if s.Type == models.StepGit || s.Type == models.StepDockerBuild {
+		if s.Type == models.StepGit || s.Type == models.StepDockerBuild || s.Type == models.StepArchive {
 			return true
 		}
 	}

@@ -210,10 +210,12 @@ func (c *ArchiveCtl) PreRun() (string, error) {
 		prefix = fmt.Sprintf("cd '%s' && ", d)
 	}
 	// glob 不命中：busybox tar 报 can't find → 步骤失败（产物缺席就该红，不该静默空包）
-	// 上传用 busybox wget（busybox/runner 镜像都没有 curl；wget --post-file 两边通吃）。
+	// 上传用 curl --data-binary（0.6.x 活体抓的：busybox wget --post-file 在引擎响应到达时
+	// 提前断开，POST body 截成 0~41 字节还回 200——静默腐败；archive 步骤的 job 因此落
+	// runner 镜像（jobNeedsRunner），curl 在 runner 里）。-f：非 2xx 直接非零退出，步骤翻红
 	// URL 整体双引号：$ 变量在双引号内照常展开（docker_build 前缀的分段拼接是单引号场景的特例，这里用不上）
 	return prefix + fmt.Sprintf(
-		"tar czf /tmp/mp-artifact.tgz %s && wget -q -O- --post-file=/tmp/mp-artifact.tgz \"$MP_ENGINE_URL/api/tasks/$MP_TASK_WF/$MP_TASK_ID/artifact/%s\" && rm -f /tmp/mp-artifact.tgz",
+		"tar czf /tmp/mp-artifact.tgz %s && curl -s -f -X POST -H 'Content-Type: application/gzip' --data-binary @/tmp/mp-artifact.tgz \"$MP_ENGINE_URL/api/tasks/$MP_TASK_WF/$MP_TASK_ID/artifact/%s\" && rm -f /tmp/mp-artifact.tgz",
 		c.spec.ArtifactGlob, name), nil
 }
 
