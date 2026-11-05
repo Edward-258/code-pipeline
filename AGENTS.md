@@ -9,7 +9,7 @@
 ## 0. 铁律
 
 1. **Zadig 模板仓库绝对只读**：`E:\code pipeline学习模板(基于zadig项目)\zadig` 只能读代码做对照，改一个字节都不行。本项目（`E:\code pipeline的小范围复现`）是独立的复现项目。
-2. 本项目是**学习性质的微型复现**，不是产品：砍掉了 RBAC/审批/IM/多集群，代码宁可直接不要过度设计。
+2. 本项目是**学习性质的微型复现**，不是产品：砍掉了 RBAC/身份系统/多集群/弹性伸缩，代码宁可直接不要过度设计（审批/IM 通知/webhook/cron 已按极简形态落地，能力全景见 §2）。
 3. 集群是临时的学习环境（master 节点 2026-11-16 到期），别在上面跑任何重要东西。
 4. **三节点 /etc/rancher/k3s/registries.yaml 是手工合并出来的**（原有 docker.io/quay.io 加速 + 我们加的 localhost:5000 mirror），改它必须先 cat 看现状再合并，改完要滚动重启 k3s（master=`k3s`，worker=`k3s-agent`）。
 
@@ -22,73 +22,86 @@
 - Job = K8s Job：主控只创建/轮询/清理，不执行脚本
 - **引擎本体也跑在 k3s 里**（helm chart 部署，对齐 Zadig 的发行形态），API 经 ingress-nginx 暴露
 
+MVP 已全量落地：变量/重试/取消/队列/CD deploy/archive/自举/cron/webhook/审批/通知/半吊子前端全部活体验收（能力全景见 §2；README.md 是对外能力说明书）。
+
 **三条灵魂（及格线，缺一不算复现）**：
 1. 图纸/实例分离，task 内嵌当时的完整定义快照
 2. Stage 状态机 + **durable 暂停**（暂停=落库+goroutine 退出，进程重启可恢复）
 3. Job = K8s Job
 
-## 2. 当前进度（截至 2026-11-05）
+## 2. 已实现能力全景（截至 2026-11-06，集群镜像 0.6.4 / runner 0.1.1）
 
-> **MVP 执行期（2026-11-05 起）**：按桌面 `mvp复现计划.md`（唯一任务事实源，§7 看板/§8 进度表）推进四阶段 MVP；工作模式 = 任务=分支=GitHub PR，阶段收口 GitHub 侧合并。M0–M5 全部保留，以下为历史进度。
+> 引擎全部能力域均已落地并活体验收：四门 + jsdom 冒烟在 0.6.4 上 99 断言全绿，`go test ./pkg/...` 11 包单测绿。历史任务账本（MVP 四阶段，PR #1–#31）见桌面 `mvp复现计划.md`（存档）；踩坑实录全在 §9。以下按能力域描述引擎**现在能做什么**。
 
-**阶段一"执行基建补课"已收官（2026-11-05 夜，PR #1–#9，`deploy/test-mvp1.sh` 35 断言全绿；镜像 0.5.x 待人工拍板后构建）**：
-- T1.1–T1.3 变量体系：`pkg/engine/vars.go` renderVars（JSON marshal→`{{.ns.key}}`替换→unmarshal，SetEscapeHTML(false) 保脚本字符）+ driver `mp_output` banner（`===MP=== OUTPUT k=v`）收割 jt.Outputs → GlobalContext（`<job>.<output>` 点分键）→ 下游 job Run 时渲染（锁内，防并行收割竞态）
-- T1.4 单 job 重试：spec.Retry + resetForRetry（化石现场清理）+ Pod env `MP_ATTEMPT`（重试剧本可确定性分支）
-- T1.5 取消：DELETE /api/tasks/:name/:id 双路径（活任务 close(chan) 信号 202 一拍收口 / pause·queued·孤儿 CancelTree 纯数据 200 / 终态 409）；cancelEntry closed 标志防二次 close panic
-- T1.6 任务队列：1s ticker 扫 queued（task_id 升序 FIFO）→ CAS 抢占（repo.ClaimQueued 条件更新防双派）→ go Run；全局 `MAX_RUNNING_TASKS`（默认3，0=只收尾）+ 同 wf 串行；pause 不占名额；release 走正常入队；Recover 扫描集加 queued（重启排空）
-- T1.7/T1.8 克隆+整任务重试：clone（快照→新号→入队，creator=clone:<src>，GlobalContext 全新）；retry（仅终态 409 守卫；resetForRetryRun 树内手术：failed/cancelled/**skipped 刹车残留**复活、passed 子树不动、Retry 预算归零；runStage 跳过 passed job）
-- T1.9 错误策略+超时：spec.TimeoutMinutes（默认10）+ spec.ErrorPolicy（stop/retry/ignore，图纸白名单校验）；**控制/上报分离**（策略只改控制流，失败照红）；task 尾态 WorstOf 如实收口
-- **拆 M1 老雷**（T1.6 活体抓的）：jobName 不含 workflow 名 → 跨 wf 同号任务 K8s Job 名碰撞互相践踏（队列时代必炸）；现名 `mp-<wf>-<taskID>-<stage>-<job>`，教训入档 §9.14
+### 里程碑时间线（全部落地）
 
-**阶段二"CD 闭环"已收官（2026-11-05 深夜，PR #10–#14 线性堆叠 GitHub 侧合并，master `fd867f9`；test-mvp1 35/35 + test-mvp2 19/19 双绿；镜像 0.6.x 待人工拍板后构建）**：
-- T2.1 env 集合：name/namespace/desc，deploy job 的靶标映射（POST/GET/DELETE /api/envs，409/400/404 全路径）
-- T2.2 deploy job ⭐CD 本体：JobTypeDeploy + DeploySpec（env/dep名/容器名/镜像/wait_rollout 默认 true）；**不变量3：不起 K8s Job 不挂 sock，引擎 client-go StrategicMergePatch 直 patch**（只动目标容器）；rollout 轮询 = observedGeneration 追上 + updated 齐 + unavailable=0；wait_rollout=false = 自举防绞杀；DeploySpec 进变量渲染管线（image 可引上游 output）
-- T2.3 chart Role 扩展（role.yaml 已改，**apply/helm upgrade 待人工**）：apps 组 deployments/statefulsets/daemonsets patch/update
-- T2.4 archive step：tar czf → curl 上传引擎 GridFS（bucket artifacts，键 `<wf>-<taskID>-<step>` 重跑覆盖，32MB 上限 413）→ GET 流式下载；Pod env 注入 MP_ENGINE_URL/MP_TASK_WF/MP_TASK_ID；⚠️ Pod→引擎上传需引擎在集群内跑（本机引擎 Pod 打不到宿主——API 层回环已绿，Pod 侧活体等 0.6.x 镜像）
-- T2.5 自举图纸：deploy/bootstrap-workflow.json（toolchain→checkout→go test 门禁→docker_build 推 ACR tag=bootstrap）+ deploy job 打自身（wait_rollout=false）；bootstrap-ensure.sh 落库脚本（env self = pipeline ns）；**执行【需人工】：worker 节点 daemon docker login ACR + Role apply + POST run**
-- fake clientset 单测手法入档：reactor 模拟 rollout 控制器追上（fake 无控制器行为）；pollInterval/rolloutWaitTimeout 做成 var 供测试缩短节拍
+M0 地基 → M1 第一口气（run→Job→轮询→ack→清理，引擎 helm 化进集群）→ M2 状态机（0.2.0）→ M3 durable 暂停（0.3.0）→ M3.5 启动宣判（0.3.1）→ 核心 CI/CD 步骤化（0.4.4，runner 进 ACR）→ M5 密封构建闭环（0.4.6）→ MVP 四阶段：执行基建（变量/重试/取消/队列）→ CD 闭环（env/deploy/archive/自举图纸）→ 触发与协作（cron/webhook/审批/通知）→ 门面（列表分页/前端）→ pkg 模块化分层（PR #31）。各阶段踩的坑与修法全部沉淀在 §9；详细验收标准见桌面 `mini-zadig-计划.md`。
 
-**阶段三"触发与协作"已收官（2026-11-05 凌晨，PR #16–#20，master `b977eae`；test-mvp3.sh 25 断言全绿）**：
-- T3.1 cron：手搓 5 段 crontab 匹配器（*/n/范围/列表/周日双写，坏表达式写入时 400）+ 整分钟对齐调度器（truncate+sleep 不漂移）；**TriggerWorkflow 统一触发入口**（cron/webhook/手动共用唯一"发号→快照→入队"构造器，RunWorkflow 重构其上）；POST /api/crons/:name/fire 手动点火（验收免等钟点）
-- T3.2 webhook：POST /api/webhook/:workflow；HMAC-SHA256 验签先行（GitHub X-Hub-Signature-256 / Gitee 双轨含明文 token；constant-time；多配置任一通过）；无签名仅当全部配置无 secret 放行（显式裸奔模式）；repo 归一（剥 .git/scheme/host）+ branch 匹配
-- T3.3 通知：notify 集合 CRUD + finish() 挂 fire-and-forget 通知钩子（1 重试，失败只记日志）；飞书/钉钉双报文 + 双平台加签（两家 HMAC 约定不同，注释钉死）；**不对称文档化**：CancelTree 纯数据取消不发通知（无看护人在场）
-- T3.4 原生审批：ManualExec 扩 approvers/policy/approvals；POST /api/tasks/:name/:id/approve（与 release 同锁同闸门位）；**活体抓真 bug：BuildTask 快照只拷 Enabled，approvers/policy 丢失 → all 静默变 any**（修 engine/task.go，审批记录属于运行不入图纸快照）；老图纸空名单 = 一条审批即过 ≡ release
+### 引擎核心
 
-**阶段四"门面"已收官 + MVP 四阶段全部完成（2026-11-05 凌晨，PR #22–#23，master `2fb3a09`；四套验收门 97 断言全绿：mvp1=35 / mvp2=19 / mvp3=25 / mvp4=18）**：
-- T4.1 任务列表过滤分页：GET /api/tasks/:name?status=&creator=&from=&to=&page=&size= → **envelope {items,total,page,size}**（裸数组形状已废，消费方注意）；repo.ListTasksFiltered（task_id 降序 + size 上限 100 + CountDocuments 总数）
-- T4.2 半吊子前端：deploy/web/index.html（原生 JS + fetch 2s 轮询，五页签：工作流 JSON 编辑（保存=删除重建）/任务过滤分页/任务详情树+分步日志+TestResult+artifact 下载+cancel/retry/clone/approve/release/env/notify/cron 含 fire）；main.go go:embed 注入（⚠️ `//go:embed` + `var x []byte` 必须 `import _ "embed"`——[]byte 形态包名不被引用但 import 不能少）
-- T4.3 顺带修两真问题：**图纸校验白名单漏 archive**（T2.4 加了步骤类型忘了加校验 case → archive 图纸 400）；**busybox/runner 镜像都没有 curl** → archive 上传改 busybox `wget --post-file`（两边通吃）
+- 三集合 `workflow`（图纸）/ `workflow_task`（施工档案）/ `counter`（发号器）；run = 发号 → 快照落库 → K8s Job 创建/轮询（2s）/收割/清理；ack 全量写（`_id` 自然键 `<wf>-<taskID>`）
+- runStages 状态机：stage 内并行/串行 + WorstOf 最差者胜（cancelled(7)>failed(6)>pause(5)>running(4)>passed(3)>created(2)>skipped(1)）+ 失败刹车（串行剩余置 skipped / 并行全员跑完再聚合 / 后续 stage 全 skipped）
+- durable 暂停：闸门落库 + goroutine 退出，kill 引擎 Pod 档案仍在；release 端点只翻 `ManualExec.Executed` 位（releaseMu 防双击，与 approve 同锁）
+- 启动宣判 Recover（main.go 在 gin 起来之前跑）：created/queued/running 孤儿宣判死亡 + 清泄漏 Job；pause 稳态不碰（有意分叉自 Zadig：它连 waiting-approve 一起杀）。不变量：running 要么有活着的看护人，要么是终态
+- 任务队列：1s ticker 扫 queued（task_id FIFO）→ CAS 抢占（repo.ClaimQueued 条件更新防双派）→ go Run；全局 `MAX_RUNNING_TASKS`（默认3，0=只收尾）+ 同 wf 串行；pause 不占名额；release/approve/cron/webhook 全走正常入队；Recover 扫描集含 queued（重启排空）
+- 取消 DELETE /api/tasks/:name/:id：活任务 close(chan) 信号 202 一拍收口 / pause·queued·孤儿 CancelTree 纯数据 200 / 终态 409；cancelEntry closed 标志防二次 close panic
+- K8s Job 名 `mp-<wf>-<taskID>-<stage>-<job>`（跨 wf 唯一，§9.14 的教训）
 
-**【需人工清单】——已全部执行完毕（2026-11-05 下午，用户授权红线解锁后由 AI 代跑）**：
-1. ✅ `deploy/build-push.sh 0.6.0` + `helm upgrade`：Role 扩展（apps 组）活体生效（release rev19 起三连升，现 **0.6.2 + runner 0.1.1**，rev21）
-2. ✅ `MP_ROLE_LIVE=1 MP_BASE=https://pipeline.47.113.177.198.nip.io bash deploy/test-mvp2.sh`：20/20 全绿，含引擎 SA patch 自身 Deployment 的活体断言
-3. ✅ 双 worker `docker login` ACR（凭证不进 Pod，见 §9.16）→ bootstrap-ensure → 三次点火：**bootstrap-3 passed，引擎用自建镜像 patch 了自己**（Deployment 现跑 `:bootstrap` tag = master 自我构建版，"用流水线发布流水线自身"闭环）
-4. ✅（等用户人眼）浏览器直接开 https://pipeline.47.113.177.198.nip.io —— 集群引擎已带前端五页签，不再需要本机引擎
-5. ✅ mvp4 对集群引擎 18/18 绿 + Pod→引擎 archive 上传活体字节闭环（GridFS 111B 真包回读 content-v1 一致；抓出 §9.16 的 wget 截断，curl 修复）
-活体三跑共抓三个真问题，全部修复入 master（PR #26/#27/#28）：10 分钟兜底墙钟杀冷启动重活 → 图纸配 `timeout_minutes: 30`；节点 docker login 凭证不进 Pod → /root/.docker hostPath 同门挂载；busybox wget --post-file 截断 POST body（静默腐败）→ runner 装 curl + archive 步骤落 runner + `curl -f` 翻红。
+### 变量与重试
 
-**M0 + M1 + M2 + M3 + M3.5 + 核心 CI/CD + M5 密封构建已完成**。M1 = run 端点 → counter 发号 → 快照落库 → K8s Job 创建/轮询/清理 → ack 全量写；引擎已镜像化部署进 k3s，经 ingress 对外。M2 = runStages 状态机（stage 内并行/串行 + 最差者胜聚合 + 失败刹车）。M3 = durable 暂停（闸门落库+goroutine 退出 → kill 引擎 Pod 档案仍在 → release 续跑）。M3.5 = 启动宣判（running 孤儿档案 cancelled + 泄漏 Job 清理；pause 稳态不碰——分叉自 Zadig，它连 waiting-approve 一起取消）。核心 CI/CD = 步骤化三级树 + bash driver + junit 门禁 + 分步日志（2026-11-04）。**M5 密封构建闭环收官（2026-11-04 晚，镜像 0.4.6，33 断言全绿）**：docker_build → registry:2 → 临时 Job 拉起产物全链路打通；收官路上修了三个真 bug（$MP_NODE_REGISTRY 单引号不展开 / containerd 双 copier 乱序写日志 / 验收脚本查错档案的化石红灯），详见 §9.10 修订与 §9.12。基础设施三连升：registry:2 移交 ArgoCD（#11）+ 引擎镜像走 ACR（#12）+ runner 镜像走 ACR（#12 扩展，2026-11-04）。
+- renderVars：JSON marshal → `{{.ns.key}}` 替换（SetEscapeHTML(false) 保脚本字符）→ unmarshal；driver `===MP=== OUTPUT k=v` banner 收割 → GlobalContext（`<job>.<output>` 点分键）→ 下游 job Run 时渲染（锁内，防并行收割竞态）
+- 单 job 重试：spec.Retry + resetForRetry（化石现场清理）+ Pod env `MP_ATTEMPT`（重试剧本可确定性分支）
+- 超时与错误策略：spec.TimeoutMinutes（默认 10，重活显式调大——§9.18）+ spec.ErrorPolicy（stop/retry/ignore，图纸白名单校验）；**控制/上报分离**（策略只改控制流，失败照红）；task 尾态 WorstOf 如实收口
+- clone（快照→新号→入队，creator=clone:<src>，GlobalContext 全新）/ retry（终态 409 守卫；resetForRetryRun 树内手术：failed/cancelled/**skipped 刹车残留**复活、passed 子树不动、Retry 预算归零）
 
-里程碑总览（详细验收标准见桌面 `mini-zadig-计划.md`）：
+### CD 闭环
 
-- [x] M0 地基
-- [x] M1 第一口气：run → K8s Job → 轮询 → ack → 清理（本地与集群双验收过）
-- [x] **M2 状态机**（2026-11-01 完成，镜像 0.2.0）：runStages（stage 内 Parallel 并行/串行）+ WorstOf 最差者胜聚合 + 失败刹车（串行=剩余 job 置 skipped；并行=全员跑完再聚合；后续 stage 全 skipped）。验收 22 断言全过（`C:\Temp\opencode\test-m2.ps1`，走 ingress）
-- [x] **M3 灵魂时刻**（2026-11-03 完成，镜像 0.3.0）：runStages 闸门（`stageGated`，对照 Zadig waitForManualExec）→ pause 落库 + goroutine 直接 return；release 端点 `POST /api/tasks/:name/:id/stages/:stage/release`（releaseMu 防双击；只翻 `Executed` 位，pause→running 翻转单点在 engine.Run）；Run() 的 StartTime 首次标记（恢复不覆盖）。验收 11 断言全过（`deploy/test-m3.sh`，含 kill 引擎 Pod 后档案仍 pause 的 durable 证明 + 双 release 409）
-- [x] **M3.5 启动宣判**（2026-11-03 完成，镜像 0.3.1）：`engine.Recover()`（main.go 启动时跑，在 gin 起来之前）扫 created/running 孤儿档案 → `declareDead`（running→cancelled、created→skipped、终态不改写）→ 清泄漏 K8s Job。对照 Zadig queue.go:110 InitQueue "取消所有 running tasks"（revoker=system）；**有意分叉：pause 不进扫描集**（我们是无需看护人的稳态，Zadig 连 waiting-approve 一起杀）。不变量：running 要么有活着的看护人，要么是终态。验收 13 断言全过（`deploy/test-m3.5.sh`，running 死宣判+Job 清理 / pause 死存活+release 照常，两剧本对照）
-- [x] **核心 CI/CD**（2026-11-04 完成，镜像 0.4.4，runner `pipeline-runner:0.1.0` 进 ACR）：spec.steps 三级树（stage→job→step，StepTask 自带 status/起止/Log/TestResult——分节点分界面的数据源）+ StepCtl/JobCtl 注册表（对照 Zadig 17 StepCtl/50 JobCtl 的 switch 注册）+ 引擎代码生成 POSIX sh 驱动脚本（banner 协议 `===MP=== STEP-START/END`，日志流=状态信道，零新依赖零 RBAC）+ junit 通过率门禁（AfterRun 引擎侧解析，默认 100% 翻红）+ 分步日志端点 `GET /api/tasks/:wf/:id/log?stage=&job=`。步骤首发四种：shell/git/docker_build/junit_report；旧图纸 Scripts 翻译成隐式 step "main"（EffectiveSteps 单源）。验收 33 断言全过（`deploy/test-cicd.sh`：幕0 兼容/幕1 密封构建闭环/幕2 门禁红绿/幕3 失败路径/幕4 git+ACR 拉取链路+附加分步日志；MP_ACT1=1 已默认可跑）
-- [ ] M4 变量传递（global_context，JSON→字符串替换→反序列化）+ 单 job 重试
-- [x] **M5 真构建闭环**（2026-11-04 晚收官，镜像 0.4.6）：密封构建三步全绿——shell 造 Dockerfile → docker_build 遥控节点 daemon 构建并推 `<nodeIP>:30500`（两台 worker daemon.json insecure-registries 已放行，补丁脚本 `deploy/fix-daemon-insecure.sh` 已实锤生效）→ 临时 Job 经 `localhost:5000` mirror 拉起产物运行。收官路上三修：① docker_build 生成的 `-t '$MP_NODE_REGISTRY/...'` 单引号禁展开（exit=125）→ 前缀段改双引号引号外拼接；② containerd 双 copier 乱序写日志（§9.10 修订）→ driver 首行 `exec 2>&1` 单流化；③ 验收脚本拿 cicd-git 的 task_id 查 cicd-fail 档案读到了化石（§9.12）
-- [ ] M6 半吊子前端（单 HTML + fetch 轮询，不上框架；三级树+TestResult+分步日志数据源已就绪）
+- env 集合：name/namespace/desc，deploy job 的靶标映射（POST/GET/DELETE /api/envs，409/400/404 全路径）
+- deploy job（CD 本体）：JobTypeDeploy + DeploySpec（env/dep名/容器名/镜像/wait_rollout 默认 true）；**不变量3：不起 K8s Job 不挂 sock，引擎 client-go StrategicMergePatch 直 patch**（只动目标容器）；rollout 轮询 = observedGeneration 追上 + updated 齐 + unavailable=0；wait_rollout=false = 自举防绞杀；DeploySpec 进变量渲染管线（image 可引上游 output）
+- chart Role 已含 apps 组 deployments/statefulsets/daemonsets patch/update（活体生效，引擎 SA 可 patch 自身 Deployment）
+- archive step：tar czf → curl 上传引擎 GridFS（bucket artifacts，键 `<wf>-<taskID>-<step>` 重跑覆盖，32MB 上限 413）→ GET 流式下载；Pod env 注入 MP_ENGINE_URL/MP_TASK_WF/MP_TASK_ID（curl -f 让上传失败翻红——busybox wget 截断教训见 §9.17）
+- 自举闭环（活体已通，bootstrap-3 passed）：deploy/bootstrap-workflow.json（checkout→go test 门禁→docker_build 推 ACR tag=bootstrap）+ deploy job 打自身（wait_rollout=false）+ bootstrap-ensure.sh 落库（env self = pipeline ns）——集群引擎现跑的就是流水线自建的 `:bootstrap` 镜像，"用流水线发布流水线自身"
+- deploy 单测手法：fake clientset + reactor 模拟 rollout 控制器追上（fake 无控制器行为）；pollInterval/rolloutWaitTimeout 做成 var 供测试缩短节拍
 
-已有代码结构（2026-11-06 模块化重构后，依赖全部单向向下无环；模块名 `pipeline`）：
+### 触发与协作
+
+- cron：手搓 5 段 crontab 匹配器（*/n/范围/列表/周日双写，坏表达式写入时 400）+ 整分钟对齐调度器（truncate+sleep 不漂移）；POST /api/crons/:name/fire 手动点火（验收免等钟点）
+- webhook：POST /api/webhook/:workflow；HMAC-SHA256 验签先行（GitHub X-Hub-Signature-256 / Gitee 双轨含明文 token；constant-time；多配置任一通过）；无签名仅当全部配置无 secret 放行（显式裸奔模式）；repo 归一（剥 .git/scheme/host）+ branch 匹配；creator=webhook:<repo>@<branch>
+- **TriggerWorkflow 统一触发入口**：cron/webhook/手动共用唯一"发号→快照→入队"构造器（RunWorkflow 重构其上）
+- 原生审批：ManualExec 扩 approvers/policy(any/all)/approvals；POST /api/tasks/:name/:id/approve（与 release 同锁同闸门位，同名重批覆盖 comment）；审批记录属于运行不入图纸快照（快照漏拷 approvers 曾让 all 静默变 any，已修）；老图纸空名单 = 一条审批即过 ≡ release
+- 通知：notify 集合 CRUD + 任务终态 fire-and-forget 钩子（1 重试，失败只记日志）；飞书/钉钉双报文 + 双平台加签（两家 HMAC 约定不同，注释钉死）；**不对称文档化**：CancelTree 纯数据取消不发通知（无看护人在场）
+
+### 门面
+
+- 任务列表过滤分页：GET /api/tasks/:name?status=&creator=&from=&to=&page=&size= → **envelope {items,total,page,size}**（裸数组形状已废，消费方注意）；task_id 降序 + size 上限 100 + CountDocuments 总数
+- 半吊子前端：deploy/web/index.html（原生 JS + fetch 2s 轮询，五页签：工作流 JSON 编辑（保存=删除重建）/任务过滤分页/环境/通知/定时含 fire；任务详情树带分步日志+TestResult+artifact 下载+cancel/retry/clone/approve/release）；main.go go:embed 注入（⚠️ `//go:embed` + `var x []byte` 必须 `import _ "embed"`——[]byte 形态包名不被引用但 import 不能少）
+- 前端质量门：test-mvp4 幕2 `node --check` 语法门（打 ingress 实吐字节）+ deploy/web/smoke.js jsdom 真执行冒烟（9 断言）——"字符串在位"≠"脚本活着"，任何 JS 交付必须过一次真执行（§9.19）
+
+### CI 步骤实现要点（留档）
+
+- driver 生成 `pkg/step/driver.go`：⚠️ POSIX sh——alpine 是 ash，无 local/[[ ]]/数组；**首行 `exec 2>&1` 单流化是切分确定性的地基**（§9.10）
+- banner 解析/切分/收口 `pkg/step/logs.go`：ApplyStepBanners 幂等重放且**行中 banner 也认** / SliceStepLogs 按 START 切段（未知步骤进黑洞）/ FinalizeSteps：created→skipped、悬空 running→failed、AfterRun 门禁、64KB 保尾部截断
+- StepCtl `pkg/step/stepctl.go`：git clone --depth 1 + token 注入 URL；docker_build 无 registry 前缀时加 `"$MP_NODE_REGISTRY"/`——**前缀段双引号在单引号外**（否则 sh 不展开，docker 收字面量报 exit=125）；junit 只认 testsuite 开标签属性、跳过 testsuites 包装层防双算
+- JobCtl `pkg/engine/exec/k8s.go`：Run 轮询循环内顺手刮日志、SaveInfo **稳定探测**（连续等长兜尾部）；镜像三档 spec.image > runner > busybox；roundtrip 测试 `pkg/step/driver_roundtrip_test.go` 真 /bin/sh 跑→分离捕获断言单流不变量→banner 反解→finalize 全链
+
+### 代码结构（2026-11-06 模块化重构后，依赖全部单向向下无环；模块名 `pipeline`）
+
 `pkg/config/`(leaf 环境配置) → `pkg/models/`(leaf 领域模型＋ManualExec.Satisfied()) → `pkg/repo/`(mongo 持久层＋GridFS artifacts) →
 `pkg/step/`(脚本执行层：driver.go POSIX 驱动生成 / stepctl.go 五种 StepCtl 注册表 / logs.go banner 解析·切分·收口——只 import models) →
 `pkg/k8s/`(K8s 访问层：client.go 双模式 client / build.go JobName+BuildJob / log.go PodLog+TailJobLog / util.go PodExitInfo+DeleteOpts) →
 `pkg/engine/`(编排核心：run.go Run+taskCtx+runStages+收口 / task.go BuildTask 快照 / trigger.go 统一触发 / queue.go 派发器 / recover.go 启动宣判 / vars.go 变量渲染) 下挂四个子包：
 　`engine/cancel/`(取消注册表 Register/Request/Fired/Tree/ErrCancelled)、`engine/exec/`(JobCtl 接口+Ctx 视图：k8s.go K8sJobCtl+重试+轮询、deploy.go DeployJobCtl+rollout；jobTimeout/pollInterval 在此)、`engine/notify/`(IM 通知 NotifyOnFinish)、`engine/cron/`(定时调度 cron.Start/Match——import engine 用 TriggerWorkflow，engine 不回头 import 它) →
 `pkg/webhook/`(git 签名/载荷/匹配纯逻辑层) → `pkg/api/`(gin handler 层：router+workflow/task 运维+approve+artifact+env/notify/cron CRUD+webhook 编排) → `main.go`(根，仅装配：embed→config→repo.Init→engine.Recover→go exec 派发器→go cron.Start→gin)。
-另有 `docker/`(引擎+runner 镜像) `deploy/chart/mini-pipeline/`(helm) `deploy/build-push.sh`/`build-runner.sh`(本机构建) `deploy/test-mvp*.sh`(四门验收) `deploy/web/`(前端+smoke.js)。 `docker/`(引擎+pipeline-runner) `deploy/chart/mini-pipeline/`(helm chart) `deploy/build-push.sh`(引擎镜像) `deploy/build-runner.sh`(runner 镜像) `deploy/test-cicd.sh`(验收)。
+另有 `docker/`(引擎+runner 镜像) `deploy/chart/mini-pipeline/`(helm) `deploy/build-push.sh`/`build-runner.sh`(本机构建) `deploy/test-mvp*.sh`(四门验收)＋`test-m3*.sh`/`test-cicd.sh`(老三门) `deploy/bootstrap-*`(自举) `deploy/web/`(前端+smoke.js)。
+
+### 验收资产（全部打集群引擎，单一引擎纪律见 §9.20）
+
+- `MP_BASE=https://pipeline.47.113.177.198.nip.io bash deploy/test-mvp1.sh`（35 断言：变量/重试/取消/队列/clone/超时错误策略）
+- `MP_ROLE_LIVE=1 MP_BASE=… bash deploy/test-mvp2.sh`（20 断言：env/deploy/archive，含引擎 SA patch 自身 Deployment 活体）
+- `MP_BASE=… bash deploy/test-mvp3.sh`（25 断言：cron/webhook/审批/通知/release）
+- `MP_BASE=… bash deploy/test-mvp4.sh`（19 断言：列表分页/前端语法门/日志）+ `node deploy/web/smoke.js`（jsdom 9 断言）
+- 老三门仍有效：test-m3.sh（durable 暂停 11，含 kill Pod）/ test-m3.5.sh（启动宣判 13）/ test-cicd.sh（核心 CI/CD 33）
+- `go test ./pkg/... -count=1`：11 包单测（repo 类需 port-forward mongo）
 
 ## 3. 环境速查（全部实测可用）
 
@@ -110,7 +123,7 @@
 ## 4. 已定稿的架构决断（不要再讨论）
 
 1. **引擎跑在集群内**（2026-11-01 拍板，推翻更早的"本机跑"方案）：InClusterConfig + SA `pipeline-engine`（Role 仅 jobs/pods 权限）；代码保留 kubeconfig fallback 供本机调试（`K8S_CONTEXT=k3s-heyuan`）。
-2. **部署形态对齐 Zadig = helm chart**：`deploy/chart/mini-pipeline`，`tags.{engine,mongo,registry}` 组件开关 + `connections.mongo.uri` 参数化（对照 Zadig chart 的 tags.mongodb / connections 模式）。⚠️ Helm v4 升级默认**复用**上次 --set 值，覆盖要显式 `--set`。
+2. **部署形态对齐 Zadig = helm chart**：`deploy/chart/mini-pipeline`，`tags.{engine,mongo,registry}` 组件开关 + `connections.mongo.uri` 参数化（对照 Zadig chart 的 tags.mongodb / connections 模式）。⚠️ 本机 helm v3.19.0：upgrade **不复用**上次 --set 值——部署时所有 --set 必须显式带全。
 3. **registry:2 提前建**（原 M5 组件）：镜像名统一 `localhost:5000/mini-pipeline:<tag>`，push 侧节点 docker 推 `127.0.0.1:30500`，pull 侧三节点 registries.yaml 把 `localhost:5000` mirror 到三个节点内网 IP:30500（不能只配 127.0.0.1——worker-2 回环 NodePort 不通，见 §9）。registry 存储会剥离 host 前缀，两边镜像名天然一致。（2026-11-02 起资源归 ArgoCD 管，见决断 #11；两条链路本身不变）
 4. **镜像在本机构建直推 ACR**（2026-11-04 起本机 Docker Desktop 可用后改版）：`deploy/build-push.sh <tag>` = 本机 `docker build`（多阶段 golang:1.26-alpine，GOPROXY=goproxy.cn，.dockerignore 瘦上下文）→ push ACR 公网端点（`--provenance=false` 硬要求，见 §9.9）。历史：2026-11-03~04 曾走"scp worker-1 远程构建"链路（本机无 docker），ssh 僵尸会话坑频发，本机 engine 就位后退役；worker 上构建一去不复返。
 5. **镜像构建走路线①**（M5 生效）：fat image（docker CLI）+ 挂宿主 `/var/run/docker.sock`；k3s 是 containerd，两个镜像仓库互不相认，registry:2 是必选项。
@@ -127,15 +140,19 @@
 ```bash
 # ===== 部署循环（改代码后的标准姿势；本机 Docker Desktop 直构直推） =====
 # 1) 构建镜像进 ACR（--provenance=false 是 ACR 硬要求，脚本已内置；首次需 docker login 一次）
-deploy/build-push.sh 0.2.2
-# 2) 升级 release（注意 helm v4 会复用上次 --set，覆盖要显式）
-helm upgrade mini-pipeline deploy/chart/mini-pipeline --kube-context k3s-heyuan -n pipeline --set image.tag=0.2.2 --set tags.engine=true --wait
+deploy/build-push.sh 0.6.5
+# 2) 升级 release（helm v3 不复用上次 --set，所有 --set 显式带全）
+helm upgrade mini-pipeline deploy/chart/mini-pipeline --kube-context k3s-heyuan -n pipeline --set image.tag=0.6.5 --set tags.engine=true --wait
 
 # ===== runner 镜像（低频；runner 变更时跑，tag 须同步 chart values runner.image） =====
 deploy/build-runner.sh 0.1.0
 
-# ===== 核心 CI/CD 验收 =====
-bash deploy/test-cicd.sh              # 幕1 默认跳过；MP_ACT1=1 全套 33 断言（daemon.json 已放行，密封构建可跑）
+# ===== 验收（四门 + jsdom 冒烟，全部打集群引擎；⚠️ 勿与本机引擎同跑——双引擎抢队列 §9.20） =====
+MP_BASE=https://pipeline.47.113.177.198.nip.io bash deploy/test-mvp1.sh                  # 35 断言
+MP_ROLE_LIVE=1 MP_BASE=https://pipeline.47.113.177.198.nip.io bash deploy/test-mvp2.sh   # 20 断言（env/deploy/archive 活体）
+MP_BASE=https://pipeline.47.113.177.198.nip.io bash deploy/test-mvp3.sh                  # 25 断言
+MP_BASE=https://pipeline.47.113.177.198.nip.io bash deploy/test-mvp4.sh && node deploy/web/smoke.js   # 19+9 断言
+bash deploy/test-cicd.sh              # 老核心 CI/CD 门 33 断言（幕1 默认跳过；MP_ACT1=1 全套）
 
 # ===== git 远端（GitHub，public；PR 流见桌面 mvp复现计划.md §0.3） =====
 git push   # GCM 凭证桥已配在仓库 local config，裸敲即可（首次会弹 Windows 登录窗）
@@ -188,17 +205,12 @@ go test ./pkg/repo/ -v -run TestNextID   # 需先 port-forward mongo
 | 保留策略 | `.../system/service/capacity.go` |
 | helm chart 形态 | 独立 chart 仓库 `koderover-chart/zadig`（tags.* + connections.* 参数化，主仓库只出 docker/*.Dockerfile） |
 
-## 8. 下一步
+## 8. 当前部署与验证态势（快照，2026-11-06）
 
-> 2026-11-04 晚状态：**M5 密封构建收官**（幕1 全绿，镜像 0.4.6，33 断言全过；两个新教训入档 §9.10 修订/§9.12）。设计底稿 `~/.claude/plans/mellow-spinning-acorn.md`（含 Zadig 源码核对结论）。
-
-未竟事项（按优先级）：
-
-1. **自举彩蛋**：git 步骤克隆 code-pipeline 仓库构建引擎自身镜像（仓库已 public，无需 PAT；公开仓库克隆已验通——幕4 octocat/Hello-World）。
-2. **M4 变量传递**：global_context（JSON marshal → `{{.key}}` 替换 → unmarshal，Zadig 粗暴方案）+ 单 job 重试 + outputs（StepCtl 挂点已留）。
-3. **M6 半吊子前端**：单 HTML + fetch 轮询；数据源已就绪（task 树带 steps/TestResult + 分步日志端点）。
-
-核心 CI/CD 完成细节（留档）：driver 生成 `engine/driver.go`（⚠️ POSIX sh——alpine 是 ash，无 local/[[ ]]/数组；**首行 `exec 2>&1` 单流化是切分确定性的地基**，见 §9.10）；banner 解析/切分/收口 `engine/logs.go`（applyStepBanners 幂等重放且**行中 banner 也认** / sliceStepLogs 按 START 切段，未知步骤进黑洞 / finalizeSteps：created→skipped、悬空 running→failed、AfterRun 门禁、64KB 保尾部截断）；StepCtl `engine/stepctl.go`（git clone --depth 1 + token 注入 URL、docker_build 无 registry 前缀时加 `"$MP_NODE_REGISTRY"/`——**前缀段双引号在单引号外**，否则 sh 不展开、docker 收字面量报 exit=125、junit 只认 testsuite 开标签属性跳过 testsuites 包装层防双算）；JobCtl `engine/jobctl.go`（Run 轮询循环内顺手刮日志、SaveInfo **稳定探测**连续等长兜尾部）；镜像三档 spec.image > runner > busybox；roundtrip 测试 `engine/driver_roundtrip_test.go` 真 /bin/sh 跑→**分离捕获断言单流不变量**→banner 反解→finalize 全链。
+- 集群 release：helm `mini-pipeline` rev23，引擎镜像 **0.6.4**（`crpi-…-vpc…/codepipeline-learning/mini-pipeline:0.6.4`）+ runner **0.1.1**（alpine+git+docker-cli+curl）；mongo 8.0 / registry:2 / registry-ui 同 ns 共存
+- 引擎入口 `https://pipeline.47.113.177.198.nip.io`（前端五页签同源，浏览器直接开）；健康门 `curl -k …/healthz`
+- **单引擎纪律**：集群引擎自带派发器，本机 `go run` 引擎与它共用 mongo 时会抢同一条队列（§9.20）——本机引擎只作调试，一切验收打集群 ingress（§2 验收资产）
+- 改动后的标准循环 = build-push → helm upgrade → 四门对集群跑（命令在 §5）；bootstrap 自举图纸可整链发布引擎自身（tag=bootstrap）
 
 ## 9. 案例存档 / 已知坑
 
