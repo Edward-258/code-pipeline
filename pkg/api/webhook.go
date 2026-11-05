@@ -18,7 +18,7 @@ import (
 // （creator=webhook:<repo>@<branch>）。
 
 // Webhook POST /api/webhook/:workflow
-func Webhook(c *gin.Context) {
+func handleWebhook(c *gin.Context) {
 	wfName := c.Param("workflow")
 	wf, err := repo.FindWorkflow(wfName)
 	if err == repo.ErrNotFound {

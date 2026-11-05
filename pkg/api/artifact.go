@@ -26,7 +26,7 @@ func artifactKey(wf string, taskID int64, step string) string {
 // PutArtifact POST /api/tasks/:name/:id/artifact/:step
 // body = 原始 tar.gz 字节流（curl --data-binary）。任务必须存在（挡野上传），
 // 步骤名只做键的一部分不强校验（允许步骤还没跑完就先传的极端时序——GridFS 覆盖语义兜底）。
-func PutArtifact(c *gin.Context) {
+func putArtifact(c *gin.Context) {
 	taskID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "task id must be a number"})
@@ -60,7 +60,7 @@ func PutArtifact(c *gin.Context) {
 }
 
 // GetArtifact GET /api/tasks/:name/:id/artifact/:step —— 流式下载（不落盘不缓冲全量）
-func GetArtifact(c *gin.Context) {
+func getArtifact(c *gin.Context) {
 	taskID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "task id must be a number"})
