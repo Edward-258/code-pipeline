@@ -1,19 +1,17 @@
 package exec
 
 import (
-	"log"
 	"sync"
 
 	"k8s.io/client-go/kubernetes"
 
 	"pipeline/pkg/models"
-	"pipeline/pkg/repo"
 )
 
 // 执行器子包（对照 Zadig jobcontroller 的 JobCtl 注册表）：engine 编排核心通过
 // 三件套接口驱动每种 job 类型的生命周期，自己不碰 K8s 细节。
 // 依赖方向：exec → step（脚本/日志协议）、k8s（资源 I/O）、engine/cancel（取消
-// sentinel）、repo（env 解析默认实现）、models——绝不回 import engine 本体。
+// sentinel）、models——绝不回 import engine 本体（整树写回经 Ctx.Ack 由 engine 注入）。
 
 // Ctx —— 单个 job 执行期的运行环境（engine.taskCtx 的导出视图）。
 // Mu 与 engine 侧 taskCtx.mu 是同一把锁的指针：并行 job 的整树写回互斥
@@ -23,7 +21,8 @@ type Ctx struct {
 	NS       string
 	Task     *models.WorkflowTask // ack 的对象（整树写回的目标）
 	Mu       *sync.Mutex
-	CancelCh <-chan struct{} // 取消信号（close 广播；nil = 永不触发）
+	Ack      func(*models.WorkflowTask) // 整树写回（engine 注入的无锁版；⚠️ 调用点必须已持 Mu）
+	CancelCh <-chan struct{}            // 取消信号（close 广播；nil = 永不触发）
 }
 
 // JobCtl —— 对照 Zadig jobcontroller/job.go:44 的 JobCtl 三件套（Run/Clean/SaveInfo）。
@@ -50,14 +49,5 @@ func NewJobCtl(jt *models.JobTask) JobCtl {
 		return DeployJobCtl{}
 	default:
 		return K8sJobCtl{}
-	}
-}
-
-// ackTask —— 任务每前进一步，整棵树写回 Mongo（engine.ack 的同构副本：exec 不
-// import engine，直呼 repo；engine 侧的 ack 走 taskCtx.mu 互斥，执行器内的调用点
-// 都已在调用方锁内）
-func ackTask(t *models.WorkflowTask) {
-	if err := repo.UpdateTask(t); err != nil {
-		log.Printf("exec: ack task %s/%d failed: %v", t.WorkflowName, t.TaskID, err)
 	}
 }
