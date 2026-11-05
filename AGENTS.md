@@ -59,12 +59,13 @@
 - T4.2 半吊子前端：deploy/web/index.html（原生 JS + fetch 2s 轮询，五页签：工作流 JSON 编辑（保存=删除重建）/任务过滤分页/任务详情树+分步日志+TestResult+artifact 下载+cancel/retry/clone/approve/release/env/notify/cron 含 fire）；main.go go:embed 注入（⚠️ `//go:embed` + `var x []byte` 必须 `import _ "embed"`——[]byte 形态包名不被引用但 import 不能少）
 - T4.3 顺带修两真问题：**图纸校验白名单漏 archive**（T2.4 加了步骤类型忘了加校验 case → archive 图纸 400）；**busybox/runner 镜像都没有 curl** → archive 上传改 busybox `wget --post-file`（两边通吃）
 
-**【需人工清单】（MVP 代码全就位，以下动作需要用户在场）**：
-1. `helm upgrade` 应用 T2.3 的 chart Role 扩展（apps 组 workload patch）+ 构建推 0.6.x 镜像（§6.5：阶段收官才构建）
-2. Role 生效后：`MP_ROLE_LIVE=1 bash deploy/test-mvp2.sh` 跑 deploy job 活体 patch 断言
-3. worker 节点 daemon 一次性 `docker login` ACR 公网端点 → `bash deploy/bootstrap-ensure.sh` → `POST /api/workflows/bootstrap/run` 点燃自举（wait_rollout=false 已内置防绞杀）
-4. 浏览器走查：本机引擎跑起来开 http://localhost:8080（五页签/过滤翻页/详情树/审批表单/增删）
-5. Pod→引擎 archive 上传活体（0.6.x 镜像进集群后，旧 0.4.6 无 artifact 路由必 404——本机引擎 Pod 打不到宿主，已知边界）
+**【需人工清单】——已全部执行完毕（2026-11-05 下午，用户授权红线解锁后由 AI 代跑）**：
+1. ✅ `deploy/build-push.sh 0.6.0` + `helm upgrade`：Role 扩展（apps 组）活体生效（release rev19 起三连升，现 **0.6.2 + runner 0.1.1**，rev21）
+2. ✅ `MP_ROLE_LIVE=1 MP_BASE=https://pipeline.47.113.177.198.nip.io bash deploy/test-mvp2.sh`：20/20 全绿，含引擎 SA patch 自身 Deployment 的活体断言
+3. ✅ 双 worker `docker login` ACR（凭证不进 Pod，见 §9.16）→ bootstrap-ensure → 三次点火：**bootstrap-3 passed，引擎用自建镜像 patch 了自己**（Deployment 现跑 `:bootstrap` tag = master 自我构建版，"用流水线发布流水线自身"闭环）
+4. ✅（等用户人眼）浏览器直接开 https://pipeline.47.113.177.198.nip.io —— 集群引擎已带前端五页签，不再需要本机引擎
+5. ✅ mvp4 对集群引擎 18/18 绿 + Pod→引擎 archive 上传活体字节闭环（GridFS 111B 真包回读 content-v1 一致；抓出 §9.16 的 wget 截断，curl 修复）
+活体三跑共抓三个真问题，全部修复入 master（PR #26/#27/#28）：10 分钟兜底墙钟杀冷启动重活 → 图纸配 `timeout_minutes: 30`；节点 docker login 凭证不进 Pod → /root/.docker hostPath 同门挂载；busybox wget --post-file 截断 POST body（静默腐败）→ runner 装 curl + archive 步骤落 runner + `curl -f` 翻红。
 
 **M0 + M1 + M2 + M3 + M3.5 + 核心 CI/CD + M5 密封构建已完成**。M1 = run 端点 → counter 发号 → 快照落库 → K8s Job 创建/轮询/清理 → ack 全量写；引擎已镜像化部署进 k3s，经 ingress 对外。M2 = runStages 状态机（stage 内并行/串行 + 最差者胜聚合 + 失败刹车）。M3 = durable 暂停（闸门落库+goroutine 退出 → kill 引擎 Pod 档案仍在 → release 续跑）。M3.5 = 启动宣判（running 孤儿档案 cancelled + 泄漏 Job 清理；pause 稳态不碰——分叉自 Zadig，它连 waiting-approve 一起取消）。核心 CI/CD = 步骤化三级树 + bash driver + junit 门禁 + 分步日志（2026-11-04）。**M5 密封构建闭环收官（2026-11-04 晚，镜像 0.4.6，33 断言全绿）**：docker_build → registry:2 → 临时 Job 拉起产物全链路打通；收官路上修了三个真 bug（$MP_NODE_REGISTRY 单引号不展开 / containerd 双 copier 乱序写日志 / 验收脚本查错档案的化石红灯），详见 §9.10 修订与 §9.12。基础设施三连升：registry:2 移交 ArgoCD（#11）+ 引擎镜像走 ACR（#12）+ runner 镜像走 ACR（#12 扩展，2026-11-04）。
 
@@ -213,3 +214,6 @@ go test ./pkg/repo/ -v -run TestNextID   # 需先 port-forward mongo
 13. **本机 Docker Desktop 拉不动 docker.io**（2026-11-04）：WSL 侧 docker pull 报 `auth.docker.io/token ... EOF`——TLS 握手即被掐（SNI 阻断），非瞬时抖动。解法（不动 Docker Desktop 全局配置）：经 mirror 拉基镜像再 retag，`docker pull docker.m.daocloud.io/library/golang:1.26-alpine && docker tag ... golang:1.26-alpine`，构建走本地缓存不再碰 docker.io；worker 节点的 daemon.json 自带 mirror 列表不受影响。
 14. **K8s Job 名必须含 workflow 名**（2026-11-05，T1.6 队列活体验收拆的 M1 老雷）：旧规则 `mp-<taskID>-<stage>-<job>` 不含 wf 名——两个不同 workflow 的同号任务 + 同名 stage/job = **同一个 K8s Job 名**：幂等 Delete 删掉别人家的 Job、Clean 掀掉别人正在轮询的执行物（实测 t16capA/B 同 task_id=1 同 s1/j 互踩，B 报 `poll k8s job: not found`）。单 wf 时代永远撞不上，队列让跨 wf 并发成为常态后必炸。修法：`mp-<wf>-<taskID>-<stage>-<job>`（wf 名唯一，sanitize+截断 63）+ 回归测试 `TestJobName`。教训：资源命名的唯一性边界要按"并发单元"划，不按"引入顺序"划。
 15. **jq 查含点字面键要用 `["a.b"]`**（2026-11-05，test-mvp1.sh 两连红真凶）：GlobalContext 收割键是 `<job>.<output>` 字面含点（如 `build.MSG`），`jq '.global_context.build.MSG'` 把它当两层路径 → null。正确写法 `.global_context["build.MSG"]`。引擎数据没问题（下游渲染已证），断言先红时先怀疑查询语法。
+16. **节点的 docker login 凭证不进 Pod**（2026-11-05，bootstrap 二跑活体抓的）：ssh 到 worker `docker login` 存的是宿主 `/root/.docker/config.json`；Job Pod 里的 docker CLI 读的是**容器内** `/root/.docker`——宿主凭证不传播。M5 时代没暴露因为推的是 `<nodeIP>:30500` 免认证 registry，bootstrap 推 ACR 才炸（`insufficient_scope`）。修法：`buildJob` 在 `jobWantsDockerSock` 同门挂 `/root/.docker` hostPath（DirectoryOrCreate + 只读）——fat 教义内无新权限面（有 docker.sock 已 ≈ 节点 root）。前置语义不变：要 push 的节点先 login。
+17. **busybox wget `--post-file` 截断 POST body**（2026-11-05，mvp4 对自举引擎活体抓的，T4.3 workaround 翻车）：busybox wget 在引擎响应到达时**提前断开**，body 只送出任意前缀——实测 3B→存 0 / 180B→存 3 / 10KB→存 41 字节，引擎 `io.Copy` 如实存残包还回 200（**静默腐败**，比 404 毒；pack 步骤日志里的 `{"stored":...}` 完全看不出问题）。根因：wget -O- 把"收到响应"当请求完成，而引擎（正确的）边读边落 GridFS、读完才响应——时序竞速谁先到头。修法三件套：runner 镜像 0.1.1 装 curl；`jobNeedsRunner` 加 StepArchive（带 archive 的 job 落 runner）；ArchiveCtl 生成 `curl -s -f --data-binary`（-f 让上传失败翻红）。教训：给脚本生成器选 HTTP 工具时，"谁先关连接"的语义比"能不能发 POST"重要。
+18. **T1.9 兜底 10 分钟墙钟会杀冷启动重活**（2026-11-05，bootstrap 首跑活体抓的）：per-job 默认 `jobTimeout = 10min`（run.go:21）对轻 job 是护栏，对"冷缓存 go test 6min + docker build 3min"的自举 job 是处决刀——pod 好好的，引擎 10min 整点删 Job。修法：图纸显式 `timeout_minutes: 30`（#26）。教训：兜底默认值的适用边界要写进图纸模板，重 CI job 一律显式配超时。
