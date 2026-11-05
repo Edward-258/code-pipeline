@@ -74,8 +74,10 @@ M0 地基 → M1 第一口气（run→Job→轮询→ack→清理，引擎 helm 
 ### 门面
 
 - 任务列表过滤分页：GET /api/tasks/:name?status=&creator=&from=&to=&page=&size= → **envelope {items,total,page,size}**（裸数组形状已废，消费方注意）；task_id 降序 + size 上限 100 + CountDocuments 总数
-- 半吊子前端：deploy/web/index.html（原生 JS + fetch 2s 轮询，五页签：工作流 JSON 编辑（保存=删除重建）/任务过滤分页/环境/通知/定时含 fire；任务详情树带分步日志+TestResult+artifact 下载+cancel/retry/clone/approve/release）；main.go go:embed 注入（⚠️ `//go:embed` + `var x []byte` 必须 `import _ "embed"`——[]byte 形态包名不被引用但 import 不能少）
-- 前端质量门：test-mvp4 幕2 `node --check` 语法门（打 ingress 实吐字节）+ deploy/web/smoke.js jsdom 真执行冒烟（9 断言）——"字符串在位"≠"脚本活着"，任何 JS 交付必须过一次真执行（§9.19）
+- workflow/env **PUT 端点已补**（PR #33）：PUT /api/workflows/:name、PUT /api/envs/:name——全量替换、路径名为准、name 不一致 400、created_at 从旧档带过来；前端"保存=删除重建"时代结束
+- **React 前端**（2026-11-06 重构，PR #34–#36）：`frontend/`（Vite+TS strict+antd5，暗色 teal 侧边栏自成一体）；页面 = 工作流列表/**可视化四层编辑器**（stage 管道卡片+并行开关+审批闸门；job freestyle/deploy 二选一：镜像自动/自定义+retry/timeout/error_policy、deploy 靶标四项+env 下拉；5 种 step 表单含 **shell 本地脚本导入（FileReader）+手写**；JSON 双模逃生舱）/任务列表过滤分页/任务详情三级树（分步日志抽屉+cancel/retry/clone/approve/release）；api 层 typed client 对齐 24 端点、usePolling（setTimeout 链防重叠、终态停）
+- 前端部署形态：**独立 nginx Pod**（多阶段 Dockerfile node build→nginx；/api、/healthz 反代引擎 service 经 envsubst 模板+resolv.conf 注入 resolver，§9.21），ingress 单条规则指前端 Pod（chart `tags.web`）；引擎 API-only（go:embed 已退役，main.go 无前端）
+- 前端质量门：`npm run build`（tsc strict 零错）+ test-mvp4 幕2 **bundle ESM 语法门**（node --check 实吐字节+导航内容断言）+ `frontend/e2e/smoke.mjs` **jsdom 真执行冒烟**（5 断言：React 真挂载/五导航/真引擎数据/菜单真切换路由/API 可达；手法=vite 单 chunk 无 import 语句→new Function eval+window 全量桥接，§9.22）——"字符串在位"≠"脚本活着"（§9.19）
 
 ### CI 步骤实现要点（留档）
 
@@ -99,7 +101,7 @@ M0 地基 → M1 第一口气（run→Job→轮询→ack→清理，引擎 helm 
 - `MP_BASE=https://pipeline.47.113.177.198.nip.io bash deploy/test-mvp1.sh`（35 断言：变量/重试/取消/队列/clone/超时错误策略）
 - `MP_ROLE_LIVE=1 MP_BASE=… bash deploy/test-mvp2.sh`（20 断言：env/deploy/archive，含引擎 SA patch 自身 Deployment 活体）
 - `MP_BASE=… bash deploy/test-mvp3.sh`（25 断言：cron/webhook/审批/通知/release）
-- `MP_BASE=… bash deploy/test-mvp4.sh`（19 断言：列表分页/前端语法门/日志）+ `node deploy/web/smoke.js`（jsdom 9 断言）
+- `MP_BASE=… bash deploy/test-mvp4.sh`（20 断言：列表分页/前端 bundle ESM 语法门/日志）+ `cd frontend && MP_BASE=… npm run smoke`（jsdom 真执行 5 断言，§9.22）
 - 老三门仍有效：test-m3.sh（durable 暂停 11，含 kill Pod）/ test-m3.5.sh（启动宣判 13）/ test-cicd.sh（核心 CI/CD 33）
 - `go test ./pkg/... -count=1`：11 包单测（repo 类需 port-forward mongo）
 
@@ -113,7 +115,7 @@ M0 地基 → M1 第一口气（run→Job→轮询→ack→清理，引擎 helm 
 | kubectl context | `k3s-heyuan` |
 | MongoDB | ns `pipeline`，**ClusterIP**（chart 内置），本机调试走 `kubectl --context k3s-heyuan port-forward -n pipeline svc/mongo 27017:27017` |
 | registry:2 | **归 ArgoCD 管**（k3s-gitops `registry` app，2026-11-02 移交）。NodePort 30500 仅内网（节点 push / kubelet mirror 链路不变）；对外 `http://registry.47.113.177.198.nip.io`（ingress 反代；Docker Desktop 直连需配 insecure-registries）；前端 `http://registry-ui.47.113.177.198.nip.io`（joxit UI，同源代理 /v2/，可浏览/删镜像）。角色已定：引擎/runner 镜像走 ACR，**registry:2 = docker_build 步骤的产物仓库**（M5 收官验证：push `<nodeIP>:30500` + kubelet `localhost:5000` mirror 拉起产物闭环） |
-| **ACR 个人版** | 引擎 + runner 镜像分发仓库：独立实例 `crpi-28fqgwft325ylccc.cn-heyuan.personal.cr.aliyuncs.com`（公网推送）+ `-vpc` 后缀变体（集群 VPC 拉取，免公网流量）。命名空间 `codepipeline-learning` 下两仓：`mini-pipeline`（引擎）、`pipeline-runner`（步骤执行器，chart values `runner.image`）。用户名 `nick9188231182`，密码在 chart values `acr.password`。build 必须 `--provenance=false`（详见 §9.9）；老共享域名 `registry.cn-heyuan.aliyuncs.com` 不属于本实例（Forbidden Host），别用 |
+| **ACR 个人版** | 引擎 + runner + 前端镜像分发仓库：独立实例 `crpi-28fqgwft325ylccc.cn-heyuan.personal.cr.aliyuncs.com`（公网推送）+ `-vpc` 后缀变体（集群 VPC 拉取，免公网流量）。命名空间 `codepipeline-learning` 下三仓：`mini-pipeline`（引擎）、`pipeline-runner`（步骤执行器，chart values `runner.image`）、`mini-pipeline-web`（React 前端+nginx，chart values `web.image`）。用户名 `nick9188231182`，密码在 chart values `acr.password`。build 必须 `--provenance=false`（详见 §9.9）；老共享域名 `registry.cn-heyuan.aliyuncs.com` 不属于本实例（Forbidden Host），别用 |
 | 引擎入口 | `https://pipeline.47.113.177.198.nip.io`（复用集群现成 nip.io+ingress-nginx 链路，SG 80/443 已放行） |
 | 安全组 | `sg-f8z8wcoum4myexrjfr40`；**30017 已收掉**，现有 80/443/6443/22/3389 + 同组内网互通 |
 | 集群存量 | argocd（ns argocd）、ingress-nginx（DaemonSet hostNetwork 双 worker）——都不是我们的，别动 |
@@ -151,7 +153,7 @@ deploy/build-runner.sh 0.1.0
 MP_BASE=https://pipeline.47.113.177.198.nip.io bash deploy/test-mvp1.sh                  # 35 断言
 MP_ROLE_LIVE=1 MP_BASE=https://pipeline.47.113.177.198.nip.io bash deploy/test-mvp2.sh   # 20 断言（env/deploy/archive 活体）
 MP_BASE=https://pipeline.47.113.177.198.nip.io bash deploy/test-mvp3.sh                  # 25 断言
-MP_BASE=https://pipeline.47.113.177.198.nip.io bash deploy/test-mvp4.sh && node deploy/web/smoke.js   # 19+9 断言
+MP_BASE=https://pipeline.47.113.177.198.nip.io bash deploy/test-mvp4.sh && (cd frontend && MP_BASE=https://pipeline.47.113.177.198.nip.io npm run smoke)   # 20+5 断言
 bash deploy/test-cicd.sh              # 老核心 CI/CD 门 33 断言（幕1 默认跳过；MP_ACT1=1 全套）
 
 # ===== git 远端（GitHub，public；PR 流见桌面 mvp复现计划.md §0.3） =====
@@ -205,12 +207,13 @@ go test ./pkg/repo/ -v -run TestNextID   # 需先 port-forward mongo
 | 保留策略 | `.../system/service/capacity.go` |
 | helm chart 形态 | 独立 chart 仓库 `koderover-chart/zadig`（tags.* + connections.* 参数化，主仓库只出 docker/*.Dockerfile） |
 
-## 8. 当前部署与验证态势（快照，2026-11-06）
+## 8. 当前部署与验证态势（快照，2026-11-06 深夜）
 
-- 集群 release：helm `mini-pipeline` rev23，引擎镜像 **0.6.4**（`crpi-…-vpc…/codepipeline-learning/mini-pipeline:0.6.4`）+ runner **0.1.1**（alpine+git+docker-cli+curl）；mongo 8.0 / registry:2 / registry-ui 同 ns 共存
-- 引擎入口 `https://pipeline.47.113.177.198.nip.io`（前端五页签同源，浏览器直接开）；健康门 `curl -k …/healthz`
+- 集群 release：helm `mini-pipeline` rev25，引擎 **0.6.5**（+PUT 端点/删 embed）+ runner **0.1.1** + **web 0.1.1**（React 前端+nginx Pod，`tags.web=true`）；mongo 8.0 / registry:2 / registry-ui 同 ns 共存
+- 引擎入口 `https://pipeline.47.113.177.198.nip.io`：ingress 单条规则指 **前端 Pod**，nginx 反代 `/api`、`/healthz` 到引擎 service（统一入口）；健康门 `curl -k …/healthz` 不变；引擎自身无前端路由（API-only）
 - **单引擎纪律**：集群引擎自带派发器，本机 `go run` 引擎与它共用 mongo 时会抢同一条队列（§9.20）——本机引擎只作调试，一切验收打集群 ingress（§2 验收资产）
-- 改动后的标准循环 = build-push → helm upgrade → 四门对集群跑（命令在 §5）；bootstrap 自举图纸可整链发布引擎自身（tag=bootstrap）
+- 改动后的标准循环 = build-push（引擎）/ build-web.sh（前端）→ helm upgrade（--set 显式带全）→ 四门 + smoke 对集群跑（命令在 §5）；bootstrap 自举图纸可整链发布引擎自身（tag=bootstrap）
+- 前端迭代循环：`cd frontend && npm run dev`（vite proxy 指集群 API）→ `npm run build` → `deploy/build-web.sh <tag>` → helm upgrade --set web.image… 或改 values 默认 tag
 
 ## 9. 案例存档 / 已知坑
 
@@ -238,3 +241,5 @@ go test ./pkg/repo/ -v -run TestNextID   # 需先 port-forward mongo
 18. **T1.9 兜底 10 分钟墙钟会杀冷启动重活**（2026-11-05，bootstrap 首跑活体抓的）：per-job 默认 `jobTimeout = 10min`（run.go:21）对轻 job 是护栏，对"冷缓存 go test 6min + docker build 3min"的自举 job 是处决刀——pod 好好的，引擎 10min 整点删 Job。修法：图纸显式 `timeout_minutes: 30`（#26）。教训：兜底默认值的适用边界要写进图纸模板，重 CI job 一律显式配超时。
 19. **前端 JS 首次真浏览器执行即死——模板反引号配对崩坏**（2026-11-05 晚，用户浏览器首访抓的）：T4.2 的 index.html 在 openTask 的 tree 模板收尾处多了 `}` + 多余反引号（`` </li>`).join("")}`; ``），整段 `<script>` 语法错 → **零个 handler 挂上**，症状 = 页面内容空 + 五页签全点不动，而 test-mvp4 的 grep 门全绿——验收只看字符串、从不执行 JS，playwright 走查又因 Docker 端口发布坏（2026-11-05 确认：**新容器 -p 照样不发布，Docker Desktop 端口转发机制整体失效**，与 chrome 容器无关）从未跑成。修法三件套：① 反引号收尾只留一个（`</li>`).join("");`）+ `ts()` 兼容 RFC3339/unix 双形态时间戳；② test-mvp4 幕2 加 **node --check 语法门**（打 ingress 实吐字节）；③ `deploy/web/smoke.js` 入库——jsdom 真执行 + 真 fetch 五页签冒烟（9 断言，不需要真浏览器）。定位手法：node --check 逐块二分 + 手写模板状态机扫描器逐行打印栈（比肉眼数反引号可靠）。教训：**"HTML 里字符串在位" ≠ "脚本活着"，任何 JS 交付必须过一次真执行**；环境工具坏掉时降级路径（jsdom）比死磕环境修复（Docker Desktop 端口转发）更快。
 20. **双引擎抢同一个队列**（2026-11-06 晚，mvp1 本机活体三连怪红真凶）：集群引擎升到 0.6.x 后自带派发器，而本机验收姿势（§0.4：本机引擎 + port-forward mongo）与集群引擎连的是**同一个 mongo**——两台引擎的 dispatchOnce 在同一条队列上赛跑：本机脚本排的队被集群引擎抢走跑（task 永远"不来"）、RunningStats 读到对方刚 CAS 完的状态让断言时序全乱。0.4.6 时代集群引擎无派发器所以从没暴露。修法二选一：① 验证收敛到单一引擎——四门全部打集群 ingress（`MP_BASE=https://pipeline.47.113.177.198.nip.io`，跑的就是刚 upgrade 的镜像）；② 临时 `kubectl scale deploy/mini-pipeline --replicas=0` 再本机跑。另附：本机引擎 POST→立刻 GET 的 "queued" 断言天然与 1s 派发拍竞速，快机器上必输——test-mvp1 已放宽为 queued|running（"run 即返回不阻塞"语义不变，同 wf 串行由后续断言承担）。
+21. **nginx proxy_pass 写死主机名 = 启动期静态解析，解析不到直接 emerg 拒启**（2026-11-06 深夜，web 镜像 0.1.0 本地 docker run 抓的）：`proxy_pass http://mini-pipeline.pipeline.svc.cluster.local:8080` 直写主机名，nginx 启动配置校验阶段就做 DNS 解析——本地 docker run 无 K8s DNS、或集群里引擎 service 晚创建（web Pod 先起），都 `[emerg] host not found in upstream` 拒启（本地实测容器秒退）。修法三件套（web 镜像 0.1.1）：① `set $engine_upstream ${MP_ENGINE_UPSTREAM}; proxy_pass http://$engine_upstream;`——变量形式 = 运行时解析，解析不到只 502 进程照常活；② resolver 从容器自己的 resolv.conf 注入（`/docker-entrypoint.d/99-resolver.sh`，nginx 官方镜像钩子序；kube-dns / docker embedded dns 通吃）；③ envsubst 注意：nginx 官方 20-envsubst 只替换容器已定义 env，`$engine_upstream` 这种 nginx 变量不会被误展开（模板里放心混写）。教训：反代配置里"名字何时被解析"和"名字指向什么"同等重要——静态解析把启动顺序耦合进了配置。
+22. **WSL 无 sudo 时的浏览器走查降级路线 + npm 断网残局**（2026-11-06 深夜，PR-F 验收实录）：① 本机 `~/.cache/ms-playwright/chromium-1243` 二进制起不来——`libnspr4.so` 等系统库缺失，`sudo apt-get` 要密码（用户在睡），playwright 报的"Target closed"其实是加载库失败；Windows Chrome CDP 也不通（`--remote-debugging-port` 绑 Windows 回环，WSL2 NAT 够不着）。② 降级正解 = **jsdom 真执行 React 产物**（`frontend/e2e/smoke.mjs`，5 断言全绿）：vite 单 chunk 产物是自执行代码（无 import/export 语句）→ `new Function(bundle)()` eval 即真跑；三个前置坑全踩过才通——**node fetch 严格校验自签 TLS**（`NODE_TLS_REJECT_UNAUTHORIZED=0`，curl -k 同款语义）；**bundle 裸引用 HTMLElement/MutationObserver 等全局类**（一次性 `Object.getOwnPropertyNames(window)` 桥接到 globalThis，testing-library 手法；逐个 stub 是打地鼠：ShadowRoot→HTMLElement→…）；**自写 waitFor 返回 `true` 而非 pred 的值**（元素断言拿到布尔，`taskMenu.click is not a function` 的真凶）。③ npm 侧：npmmirror CDN 大量 ECONNRESET 时 `--maxsockets=3 --fetch-retries=5` 重装可通，但失败 install 会留下**空壳 @types 目录**——目录在而文件空，tsc 把它当隐式类型入口报 TS2688 "Cannot find type definition"；`rm -rf node_modules/@types/babel__*` 后重装（npm 不会自愈空壳）。教训：环境工具不可用时，"产物的真执行"往往还有第二条路——前提是产物形态允许（自执行 bundle + jsdom）；降级方案要沉淀成脚本进库，别做成一次性手工操作。
