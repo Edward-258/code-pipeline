@@ -209,8 +209,8 @@ wf.json 示例（freestyle 脚本形态）：
 MP_BASE=https://pipeline.47.113.177.198.nip.io bash deploy/test-mvp1.sh    # 35 断言：变量/重试/取消/队列/clone/超时错误策略
 MP_ROLE_LIVE=1 MP_BASE=… bash deploy/test-mvp2.sh                          # 20 断言：env/deploy/archive（含 SA patch 自身 Deployment 活体）
 MP_BASE=… bash deploy/test-mvp3.sh                                         # 25 断言：cron/webhook/审批/通知/release
-MP_BASE=… bash deploy/test-mvp4.sh                                         # 19 断言：列表分页/前端语法门/日志
-node deploy/web/smoke.js                                                   # jsdom 真执行冒烟 9 断言
+MP_BASE=… bash deploy/test-mvp4.sh                                         # 20 断言：列表分页/前端语法门/日志
+(cd frontend && MP_BASE=… npm run smoke)                                   # jsdom 真执行冒烟 5 断言
 go test ./pkg/... -count=1                                                 # 11 包单测（repo 类需 port-forward mongo）
 ```
 
