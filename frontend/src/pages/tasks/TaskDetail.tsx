@@ -169,6 +169,7 @@ export default function TaskDetail() {
       >
         <Paragraph>
           <pre style={{
+            // 日志区保留终端黑底：日志查看器的终端语义，与页面白底形成功能对比
             background: '#0d1117', color: '#c9d1d9', padding: 12, borderRadius: 6,
             whiteSpace: 'pre-wrap', fontSize: 12, maxHeight: '75vh', overflow: 'auto',
           }}>
