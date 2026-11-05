@@ -61,6 +61,14 @@ func buildJob(namespace string, t *models.WorkflowTask, jt *models.JobTask, scri
 			HostPath: &corev1.HostPathVolumeSource{Path: "/var/run/docker.sock", Type: ptr.To(corev1.HostPathSocket)},
 		}})
 		mounts = append(mounts, corev1.VolumeMount{Name: "docker-sock", MountPath: "/var/run/docker.sock"})
+		// 节点 docker login 的凭证活在宿主 /root/.docker/config.json，Pod 内 CLI 读自己的 /root/.docker
+		// 读不到——bootstrap 活体抓的（push ACR 报 insufficient_scope）。与 docker.sock 同门挂进（只读）。
+		// 前置：目标 worker 节点先 docker login（bootstrap-ensure.sh 尾部清单）；DirectoryOrCreate
+		// 兜底没登录过的节点，Pod 起得来、push 报匿名 insufficient_scope 语义不变
+		volumes = append(volumes, corev1.Volume{Name: "docker-config", VolumeSource: corev1.VolumeSource{
+			HostPath: &corev1.HostPathVolumeSource{Path: "/root/.docker", Type: ptr.To(corev1.HostPathDirectoryOrCreate)},
+		}})
+		mounts = append(mounts, corev1.VolumeMount{Name: "docker-config", MountPath: "/root/.docker", ReadOnly: true})
 	}
 
 	return &batchv1.Job{
