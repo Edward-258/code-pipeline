@@ -60,6 +60,16 @@ HTML=$(curl -sk "$BASE/")
 assert_has "index.html 可服务" "$HTML" "mini-pipeline"
 assert_has "五页签在位" "$HTML" 'data-t="cron"'
 assert_has "任务页签在位" "$HTML" 'data-t="task"'
+# §9.19 教训：模板反引号配对崩坏曾让整段 JS 死掉（页面空+全不可点）而 grep 门全绿——
+# 前端脚本必须过语法门。打的是 $BASE 实吐字节（连 ingress 篡改一起验）。
+if command -v node >/dev/null 2>&1; then
+  printf '%s' "$HTML" | sed -n '/^<script>$/,/^<\/script>$/p' | sed '1d;$d' > /tmp/mvp4-page.js
+  if node --check /tmp/mvp4-page.js 2>/tmp/mvp4-err.txt; then
+    ok "前端脚本语法门（node --check）"
+  else
+    bad "前端脚本语法错误: $(head -2 /tmp/mvp4-err.txt | tr '\n' ' ')"
+  fi
+fi
 
 echo "== 幕3 前端数据源完备性（树/日志/TestResult/artifact）=="
 WF="mvp4-src-$$"
