@@ -18,6 +18,7 @@ func NewRouter() *gin.Engine {
 		api.POST("/workflows", CreateWorkflow)
 		api.GET("/workflows", ListWorkflows)
 		api.GET("/workflows/:name", GetWorkflow)
+		api.PUT("/workflows/:name", UpdateWorkflow)
 		api.DELETE("/workflows/:name", DeleteWorkflow)
 
 		// T3.3：IM 通知配置
@@ -36,6 +37,7 @@ func NewRouter() *gin.Engine {
 		// T2.1：部署目标环境（env = 名字 → namespace，deploy job 的靶标）
 		api.POST("/envs", CreateEnv)
 		api.GET("/envs", ListEnvs)
+		api.PUT("/envs/:name", UpdateEnv)
 		api.DELETE("/envs/:name", DeleteEnv)
 
 		// M1：run / task 查询

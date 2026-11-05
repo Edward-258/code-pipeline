@@ -56,6 +56,18 @@ func ListEnvs() ([]*models.Env, error) {
 	return out, cur.Err()
 }
 
+// UpdateEnv —— 全量替换（name 是主键不可改，调用方已按路径名归一）；CreatedAt 同 workflow 纪律由旧档带过来
+func UpdateEnv(e *models.Env) error {
+	res, err := EnvColl.ReplaceOne(context.TODO(), bson.M{"_id": e.Name}, e)
+	if err != nil {
+		return err
+	}
+	if res.MatchedCount == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 func DeleteEnv(name string) error {
 	res, err := EnvColl.DeleteOne(context.TODO(), bson.M{"_id": name})
 	if err != nil {

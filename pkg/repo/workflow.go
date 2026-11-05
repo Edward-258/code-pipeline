@@ -53,6 +53,20 @@ func ListWorkflows() ([]*models.Workflow, error) {
 	return out, cur.Err()
 }
 
+// UpdateWorkflow —— 全量替换（与 ack 的 ReplaceOne 同构）；不存在交由调用方翻译 404。
+// CreatedAt 由调用方从旧档带过来：图纸的出身不许被更新改写。
+func UpdateWorkflow(w *models.Workflow) error {
+	w.UpdatedAt = time.Now()
+	res, err := WorkflowColl.ReplaceOne(context.TODO(), bson.M{"_id": w.Name}, w)
+	if err != nil {
+		return err
+	}
+	if res.MatchedCount == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // DeleteWorkflow —— Zadig 的做法是连带软删历史任务（is_deleted: true）
 // 学习版：图纸硬删，任务档案保留（审计需求，删档只应发生在保留策略里）
 func DeleteWorkflow(name string) error {
