@@ -12,8 +12,10 @@ import (
 	"pipeline/pkg/repo"
 )
 
-// 任务运行/查询/运维的 HTTP 面。领域逻辑全部在 engine（run/stages/jobs 状态机 +
-// ops.go 运维操作面 + trigger.go 触发），这里只做形状翻译：参数解析、状态码映射。
+// 任务域的全部 HTTP 面（查询/取消/放行/克隆/重试/审批/日志）。领域逻辑全部在
+// engine（run/stages/jobs 状态机 + ops.go 运维操作面 + trigger.go 触发），这里只做
+// 形状翻译：参数解析、状态码映射。api 包按资源域一文件：workflows/tasks/envs/
+// crons/notifies/artifacts/webhooks + router。
 
 // ---------- 共用小件 ----------
 
@@ -40,24 +42,6 @@ func taskFromPath(c *gin.Context) *models.WorkflowTask {
 // respond —— 统一错误响应体 {"error": …}
 func respond(c *gin.Context, code int, msg string) {
 	c.JSON(code, gin.H{"error": msg})
-}
-
-// ---------- Run / Task 查询（对照 Zadig workflow controller 的 RunWorkflowTask） ----------
-
-// runWorkflow POST /api/workflows/:name/run
-// T3.1 起走 engine.TriggerWorkflow 统一入口（cron/webhook 与手动 run 同一条
-// 发号→快照→入队路径），creator 标记区分来源。
-func runWorkflow(c *gin.Context) {
-	t, err := engine.TriggerWorkflow(c.Param("name"), "api")
-	if errors.Is(err, engine.ErrWorkflowNotFound) {
-		respond(c, http.StatusNotFound, "workflow not found")
-		return
-	}
-	if err != nil {
-		respond(c, http.StatusInternalServerError, err.Error())
-		return
-	}
-	c.JSON(http.StatusOK, t)
 }
 
 // getTask GET /api/tasks/:name/:id —— 整棵任务树
@@ -196,4 +180,40 @@ func getTaskLog(c *gin.Context) {
 		return
 	}
 	c.String(http.StatusOK, txt)
+}
+
+// ---------- T3.4：原生审批（对照 Zadig POST .../approve 的极简版；领域侧在 engine.RecordApproval） ----------
+
+type approveBody struct {
+	Stage    string `json:"stage"`    // 可选：默认取第一个 pause 中的 stage
+	Approver string `json:"approver"` // 自由文本（硬约束 #2：不做身份系统）
+	Comment  string `json:"comment,omitempty"`
+}
+
+// approveTask POST /api/tasks/:name/:id/approve
+func approveTask(c *gin.Context) {
+	t := taskFromPath(c)
+	if t == nil {
+		return
+	}
+	var body approveBody
+	if err := c.ShouldBindJSON(&body); err != nil {
+		respond(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	if body.Approver == "" {
+		respond(c, http.StatusBadRequest, "approver is required (free text)")
+		return
+	}
+
+	res, err := engine.RecordApproval(t, body.Stage, body.Approver, body.Comment)
+	if errors.Is(err, engine.ErrNotWaiting) {
+		respond(c, http.StatusConflict, err.Error())
+		return
+	}
+	if err != nil {
+		respond(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, res)
 }

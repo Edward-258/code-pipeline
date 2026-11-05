@@ -2,16 +2,16 @@ package api
 
 import (
 	"errors"
-
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 
+	"pipeline/pkg/engine"
 	"pipeline/pkg/models"
 	"pipeline/pkg/repo"
 )
 
-// ---------- Workflow CRUD（对照 Zadig handler/workflow_v4.go，砍掉鉴权/参数/通知） ----------
+// ---------- Workflow 域：CRUD + 手动触发（对照 Zadig handler/workflow_v4.go，砍掉鉴权/参数/通知） ----------
 
 // createWorkflow POST /api/workflows
 func createWorkflow(c *gin.Context) {
@@ -97,4 +97,22 @@ func deleteWorkflow(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "deleted"})
+}
+
+// ---------- Run / Task 查询（对照 Zadig workflow controller 的 RunWorkflowTask） ----------
+
+// runWorkflow POST /api/workflows/:name/run
+// T3.1 起走 engine.TriggerWorkflow 统一入口（cron/webhook 与手动 run 同一条
+// 发号→快照→入队路径），creator 标记区分来源。
+func runWorkflow(c *gin.Context) {
+	t, err := engine.TriggerWorkflow(c.Param("name"), "api")
+	if errors.Is(err, engine.ErrWorkflowNotFound) {
+		respond(c, http.StatusNotFound, "workflow not found")
+		return
+	}
+	if err != nil {
+		respond(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, t)
 }
