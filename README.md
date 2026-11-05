@@ -101,9 +101,10 @@ pkg/
 │   └── cron/      定时调度（import engine，engine 不回头 import 它）
 ├── webhook/       git 签名/载荷/匹配纯逻辑
 └── api/           gin handler 层 + 路由
-main.go            仅装配：embed→repo.Init→Recover→派发器→cron→gin
-docker/            引擎镜像 + pipeline-runner 镜像
-deploy/            chart/ + build-push.sh + build-runner.sh + test-*.sh + bootstrap-* + web/
+main.go            仅装配：config→repo.Init→Recover→派发器→cron→gin
+docker/            三镜像 Dockerfile：引擎 / runner / web（React+nginx）
+deploy/            chart/ + build-push.sh + build-runner.sh + build-web.sh + test-*.sh + bootstrap-*
+frontend/          React 18 + TS + antd 5 前端（Vite 构建，e2e/ 下 jsdom 冒烟）
 ```
 
 ## 快速开始

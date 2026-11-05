@@ -1,8 +1,11 @@
-# 镜像构建上下文瘦身（Dockerfile 只 COPY go.mod/go.sum + 源码目录）
-# T4.2 起 main.go go:embed deploy/web/index.html——deploy/ 不能整目录排除，只排验收脚本
+# 镜像构建上下文瘦身（引擎/runner 只 COPY go.mod/go.sum + 源码目录）
 .git
 .claude
 *.md
+.zcode
 deploy/chart
 deploy/*.sh
 deploy/*.json
+# 前端镜像（docker/web.Dockerfile）同用仓库根做上下文：重货全排除
+frontend/node_modules
+frontend/dist
