@@ -1,3 +1,5 @@
+// Package webhook —— git webhook 纯逻辑层：HMAC-SHA256 验签、载荷解析、repo/branch
+// 匹配。无 HTTP 依赖（gin 编排在 api）。
 package webhook
 
 import (
@@ -85,19 +87,19 @@ func IsPushEvent(h http.Header) bool {
 	return true // 没有事件头：按 push 对待（curl 直调的验收形态）
 }
 
-func BranchOfRef(ref string) string {
+func branchOfRef(ref string) string {
 	return strings.TrimPrefix(ref, "refs/heads/")
 }
 
 // Pick —— branch+repo 双匹配：返回第一个命中的配置（调用方拿它的 Repo 拼 creator）。
 // wc.Branch 为空 = 任意分支（宽松模式）；pushedRepo 为空 = 跳过 repo 校验。
 func Pick(wcs []*models.WebhookConfig, ref, pushedRepo string) (*models.WebhookConfig, string) {
-	branch := BranchOfRef(ref)
+	branch := branchOfRef(ref)
 	for _, wc := range wcs {
 		if branch != wc.Branch && wc.Branch != "" {
 			continue // 分支不匹配
 		}
-		if pushedRepo != "" && !RepoMatches(pushedRepo, wc.Repo) {
+		if pushedRepo != "" && !repoMatches(pushedRepo, wc.Repo) {
 			continue
 		}
 		return wc, branch
@@ -105,9 +107,9 @@ func Pick(wcs []*models.WebhookConfig, ref, pushedRepo string) (*models.WebhookC
 	return nil, branch
 }
 
-// NormRepo —— repo 标识归一化：剥 .git 尾缀与 scheme/host 前缀，只剩 owner/repo。
+// normRepo —— repo 标识归一化：剥 .git 尾缀与 scheme/host 前缀，只剩 owner/repo。
 // "https://github.com/o/r.git"、"o/r"、"git@gitee.com:o/r.git" 全部归到 "o/r"。
-func NormRepo(s string) string {
+func normRepo(s string) string {
 	s = strings.TrimSuffix(s, "/")
 	s = strings.TrimSuffix(s, ".git")
 	if i := strings.Index(s, "://"); i >= 0 {
@@ -119,6 +121,6 @@ func NormRepo(s string) string {
 	return strings.TrimSuffix(s, "/")
 }
 
-func RepoMatches(pushed, configured string) bool {
-	return NormRepo(pushed) == NormRepo(configured)
+func repoMatches(pushed, configured string) bool {
+	return normRepo(pushed) == normRepo(configured)
 }

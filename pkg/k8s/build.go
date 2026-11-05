@@ -99,7 +99,7 @@ func BuildJob(namespace string, t *models.WorkflowTask, jt *models.JobTask, scri
 							}}},
 							{Name: "MP_NODE_REGISTRY", Value: "$(MP_NODE_IP):30500"}, // K8s 依赖 env 展开
 							{Name: "MP_ATTEMPT", Value: strconv.Itoa(jt.Retry + 1)},  // T1.4：第几次尝试（重试脚本可确定性分支）
-							{Name: "MP_ENGINE_URL", Value: cfg.EngineURL},  // T2.4：archive 上传目标
+							{Name: "MP_ENGINE_URL", Value: cfg.EngineURL},            // T2.4：archive 上传目标
 							{Name: "MP_TASK_WF", Value: t.WorkflowName},              // T2.4：artifact 上传 URL 组装
 							{Name: "MP_TASK_ID", Value: strconv.FormatInt(t.TaskID, 10)},
 						},
@@ -111,4 +111,3 @@ func BuildJob(namespace string, t *models.WorkflowTask, jt *models.JobTask, scri
 		},
 	}
 }
-

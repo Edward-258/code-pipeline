@@ -18,7 +18,7 @@ import (
 var artifactBucket *gridfs.Bucket
 
 func initArtifactBucket() (err error) {
-	artifactBucket, err = gridfs.NewBucket(Client.Database("pipeline"), options.GridFSBucket().SetName("artifacts"))
+	artifactBucket, err = gridfs.NewBucket(client.Database("pipeline"), options.GridFSBucket().SetName("artifacts"))
 	return err
 }
 

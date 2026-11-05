@@ -1,3 +1,5 @@
+// Package cancel —— 进程内取消注册表：信号广播（有看护人）与纯数据收口（无看护人）
+// 两条路径的语义单点。
 package cancel
 
 import (

@@ -1,6 +1,8 @@
 package api
 
 import (
+	"errors"
+
 	"fmt"
 	"net/http"
 	"time"
@@ -15,7 +17,7 @@ import (
 // 定时触发配置 API（T3.1）：POST/GET/PUT/DELETE /api/crons。
 // 表达式在写入时校验（坏 cron 留在库里 = 每分钟刷错误日志的哑弹）。
 
-// CreateCron POST /api/crons
+// createCron POST /api/crons
 func createCron(c *gin.Context) {
 	var cr models.Cron
 	if err := c.ShouldBindJSON(&cr); err != nil {
@@ -26,7 +28,7 @@ func createCron(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	if err := repo.CreateCron(&cr); err == repo.ErrExists {
+	if err := repo.CreateCron(&cr); errors.Is(err, repo.ErrExists) {
 		c.JSON(http.StatusConflict, gin.H{"error": "cron " + cr.Name + " already exists"})
 		return
 	} else if err != nil {
@@ -36,7 +38,7 @@ func createCron(c *gin.Context) {
 	c.JSON(http.StatusOK, cr)
 }
 
-// ListCrons GET /api/crons
+// listCrons GET /api/crons
 func listCrons(c *gin.Context) {
 	list, err := repo.ListCrons()
 	if err != nil {
@@ -49,14 +51,14 @@ func listCrons(c *gin.Context) {
 	c.JSON(http.StatusOK, list)
 }
 
-// UpdateCron PUT /api/crons/:name —— 全量更新（enabled 开关 / 换表达式 / 换图纸）
+// updateCron PUT /api/crons/:name —— 全量更新（enabled 开关 / 换表达式 / 换图纸）
 func updateCron(c *gin.Context) {
 	var cr models.Cron
 	if err := c.ShouldBindJSON(&cr); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	if _, err := repo.FindCron(c.Param("name")); err == repo.ErrNotFound {
+	if _, err := repo.FindCron(c.Param("name")); errors.Is(err, repo.ErrNotFound) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "cron not found"})
 		return
 	} else if err != nil {
@@ -75,9 +77,9 @@ func updateCron(c *gin.Context) {
 	c.JSON(http.StatusOK, cr)
 }
 
-// DeleteCron DELETE /api/crons/:name
+// deleteCron DELETE /api/crons/:name
 func deleteCron(c *gin.Context) {
-	if err := repo.DeleteCron(c.Param("name")); err == repo.ErrNotFound {
+	if err := repo.DeleteCron(c.Param("name")); errors.Is(err, repo.ErrNotFound) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "cron not found"})
 		return
 	} else if err != nil {
@@ -87,10 +89,10 @@ func deleteCron(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"deleted": c.Param("name")})
 }
 
-// TriggerCron POST /api/crons/:name/fire —— 手动点火（验收用：不等整分钟就能触发一次）
+// triggerCron POST /api/crons/:name/fire —— 手动点火（验收用：不等整分钟就能触发一次）
 func triggerCron(c *gin.Context) {
 	cr, err := repo.FindCron(c.Param("name"))
-	if err == repo.ErrNotFound {
+	if errors.Is(err, repo.ErrNotFound) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "cron not found"})
 		return
 	} else if err != nil {
@@ -111,7 +113,7 @@ func triggerCron(c *gin.Context) {
 }
 
 func validateCron(cr *models.Cron) error {
-	if !envNameRe.MatchString(cr.Name) {
+	if !nameRe.MatchString(cr.Name) {
 		return fmt.Errorf("cron name must match [a-z0-9][a-z0-9-]{0,62}")
 	}
 	if cr.WorkflowName == "" {

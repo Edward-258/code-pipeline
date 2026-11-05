@@ -1,3 +1,6 @@
+// Package models —— 领域模型与状态常量（leaf 包：workflow 图纸 / workflow_task 档案 /
+// env / cron / notify 五域的结构体、Status 体系与 WorstOf 聚合、纯领域逻辑
+// （ValidateWorkflow/CronMatch/Satisfied/EffectiveSteps）全在这里。
 package models
 
 import (
@@ -11,7 +14,7 @@ type Workflow struct {
 	Name          string            `bson:"_id"       json:"name"` // 图纸名即主键
 	Stages        []*Stage          `bson:"stages"    json:"stages"`
 	GlobalContext map[string]string `bson:"global_context,omitempty" json:"global_context,omitempty"` // 图纸级变量初始值（开跑时拷进 task.GlobalContext，M4）
-	Webhooks      []*WebhookConfig  `bson:"webhooks,omitempty" json:"webhooks,omitempty"` // T3.2：git push 触发配置（可多条）
+	Webhooks      []*WebhookConfig  `bson:"webhooks,omitempty" json:"webhooks,omitempty"`             // T3.2：git push 触发配置（可多条）
 	CreatedAt     time.Time         `bson:"created_at" json:"created_at"`
 	UpdatedAt     time.Time         `bson:"updated_at" json:"updated_at"`
 }
@@ -19,8 +22,8 @@ type Workflow struct {
 // WebhookConfig —— git push 触发规则（T3.2，对照 Zadig 的 webhook 管理砍到两条字段）：
 // repo 全名或 URL 尾段匹配 + 分支匹配 + HMAC-SHA256 对称密钥（secret 明文同 chart values 档案）。
 type WebhookConfig struct {
-	Repo   string `bson:"repo"   json:"repo"`   // owner/repo 或完整 https URL（.git 尾缀忽略）
-	Branch string `bson:"branch" json:"branch"` // refs/heads/<branch> 的 <branch>
+	Repo   string `bson:"repo"   json:"repo"`                       // owner/repo 或完整 https URL（.git 尾缀忽略）
+	Branch string `bson:"branch" json:"branch"`                     // refs/heads/<branch> 的 <branch>
 	Secret string `bson:"secret,omitempty" json:"secret,omitempty"` // 空 = 不验签（学习版明确接受）
 }
 
@@ -39,11 +42,11 @@ type Stage struct {
 // Policy: any（默认，任一人批即过）| all（全员到齐）
 // Approvals: 已收到的审批记录（谁、说了什么、何时）
 type ManualExec struct {
-	Enabled          bool       `bson:"enabled"           json:"enabled"`
-	Executed         bool       `bson:"executed"          json:"executed"`
-	NotificationSent bool       `bson:"notification_sent" json:"notification_sent"`
-	Approvers        []string   `bson:"approvers,omitempty" json:"approvers,omitempty"`
-	Policy           string     `bson:"policy,omitempty"    json:"policy,omitempty"`
+	Enabled          bool        `bson:"enabled"           json:"enabled"`
+	Executed         bool        `bson:"executed"          json:"executed"`
+	NotificationSent bool        `bson:"notification_sent" json:"notification_sent"`
+	Approvers        []string    `bson:"approvers,omitempty" json:"approvers,omitempty"`
+	Policy           string      `bson:"policy,omitempty"    json:"policy,omitempty"`
 	Approvals        []*Approval `bson:"approvals,omitempty" json:"approvals,omitempty"`
 }
 
@@ -62,10 +65,10 @@ type Approval struct {
 
 // Job —— 任务单元（对照 Zadig Job）
 type Job struct {
-	Name       string      `bson:"name" json:"name"`
-	JobType    string      `bson:"type" json:"type"` // freestyle（跑步骤）| deploy（patch 部署，T2.2）
-	Spec       *FreestyleSpec `bson:"spec" json:"spec"` // freestyle 专用；deploy 时可为 nil
-	DeploySpec *DeploySpec `bson:"deploy_spec,omitempty" json:"deploy_spec,omitempty"` // deploy 专用
+	Name       string         `bson:"name" json:"name"`
+	JobType    string         `bson:"type" json:"type"`                                   // freestyle（跑步骤）| deploy（patch 部署，T2.2）
+	Spec       *FreestyleSpec `bson:"spec" json:"spec"`                                   // freestyle 专用；deploy 时可为 nil
+	DeploySpec *DeploySpec    `bson:"deploy_spec,omitempty" json:"deploy_spec,omitempty"` // deploy 专用
 }
 
 // JobType 常量（对照 Zadig 47 种 Job 里我们只长两种）
@@ -77,7 +80,7 @@ const (
 // DeploySpec —— 部署作业规格（T2.2，对照 Zadig job_deploy.go 的极简版）：
 // 目标 env（=namespace）+ Deployment 名 + 容器名 + 新镜像（可 {{.jobName.output}} 引用上游）。
 type DeploySpec struct {
-	Env            string `bson:"env"                 json:"env"`             // env 集合里的名字（T2.1）→ 解析出 namespace
+	Env            string `bson:"env"                 json:"env"` // env 集合里的名字（T2.1）→ 解析出 namespace
 	DeploymentName string `bson:"deployment_name"     json:"deployment_name"`
 	ContainerName  string `bson:"container_name"      json:"container_name"`
 	Image          string `bson:"image"               json:"image"`
@@ -110,16 +113,16 @@ const (
 
 // StepSpec —— 步骤规格（图纸层，对照 Zadig 的各 StepModel；字段按 Type 取用）
 type StepSpec struct {
-	Name       string  `bson:"name"                 json:"name"`
-	Type       string  `bson:"type"                 json:"type"` // 见下方 Step* 常量
-	Script     string  `bson:"script,omitempty"     json:"script,omitempty"`      // shell：多行脚本
-	Repo       string  `bson:"repo,omitempty"       json:"repo,omitempty"`        // git：https 地址
-	Branch     string  `bson:"branch,omitempty"     json:"branch,omitempty"`      // git：默认 main
-	Token      string  `bson:"token,omitempty"      json:"token,omitempty"`       // git：私有仓库访问令牌（注入 URL）
-	ContextDir string  `bson:"context_dir,omitempty" json:"context_dir,omitempty"` // git 检出目录 / docker_build 上下文（相对当前目录）
-	Image      string  `bson:"image,omitempty"      json:"image,omitempty"`       // docker_build：产物镜像名
-	Tag        string  `bson:"tag,omitempty"        json:"tag,omitempty"`         // docker_build：默认 latest
-	Dockerfile string  `bson:"dockerfile,omitempty" json:"dockerfile,omitempty"`  // docker_build：默认 ./Dockerfile
+	Name         string  `bson:"name"                 json:"name"`
+	Type         string  `bson:"type"                 json:"type"`                       // 见下方 Step* 常量
+	Script       string  `bson:"script,omitempty"     json:"script,omitempty"`           // shell：多行脚本
+	Repo         string  `bson:"repo,omitempty"       json:"repo,omitempty"`             // git：https 地址
+	Branch       string  `bson:"branch,omitempty"     json:"branch,omitempty"`           // git：默认 main
+	Token        string  `bson:"token,omitempty"      json:"token,omitempty"`            // git：私有仓库访问令牌（注入 URL）
+	ContextDir   string  `bson:"context_dir,omitempty" json:"context_dir,omitempty"`     // git 检出目录 / docker_build 上下文（相对当前目录）
+	Image        string  `bson:"image,omitempty"      json:"image,omitempty"`            // docker_build：产物镜像名
+	Tag          string  `bson:"tag,omitempty"        json:"tag,omitempty"`              // docker_build：默认 latest
+	Dockerfile   string  `bson:"dockerfile,omitempty" json:"dockerfile,omitempty"`       // docker_build：默认 ./Dockerfile
 	ReportGlob   string  `bson:"report_glob,omitempty"   json:"report_glob,omitempty"`   // junit_report：XML 通配
 	PassRate     float64 `bson:"pass_rate,omitempty"     json:"pass_rate,omitempty"`     // junit_report：门禁 (0,1]，默认 1.0=100%
 	ArtifactGlob string  `bson:"artifact_glob,omitempty" json:"artifact_glob,omitempty"` // archive：产物路径 glob（相对工作区）
@@ -172,8 +175,10 @@ func (s *FreestyleSpec) WantsDockerSock() bool {
 }
 
 // Satisfied —— T3.4 审批策略判定（纯函数，原 engine.ApprovalSatisfied 随模块化迁入）：
-//   any（默认）或空名单：凑够 ≥1 条即过
-//   all：Approvers 里每个人都得有一条记录（同名去重看 Approvals）
+//
+//	any（默认）或空名单：凑够 ≥1 条即过
+//	all：Approvers 里每个人都得有一条记录（同名去重看 Approvals）
+//
 // 这里的"名单为空 + any"就是老图纸的原 release 语义——approve 端点对老图纸
 // 退化成 release，两套端点一套语义。
 func (me *ManualExec) Satisfied() bool {

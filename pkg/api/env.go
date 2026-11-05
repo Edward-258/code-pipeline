@@ -1,6 +1,8 @@
 package api
 
 import (
+	"errors"
+
 	"net/http"
 	"regexp"
 
@@ -13,16 +15,16 @@ import (
 // 部署目标环境 API（T2.1）。env = 名字 → namespace 的映射，deploy job（T2.2）的靶标来源。
 // 对照 Zadig environment 模块的 50+ 端点砍到三个：增/列/删。
 
-var envNameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}$`) // 与 K8s namespace 命名规则同构（小写数字中划线）
+var nameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}$`) // 与 K8s namespace 命名规则同构（小写数字中划线）
 
-// CreateEnv POST /api/envs
+// createEnv POST /api/envs
 func createEnv(c *gin.Context) {
 	var e models.Env
 	if err := c.ShouldBindJSON(&e); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	if !envNameRe.MatchString(e.Name) {
+	if !nameRe.MatchString(e.Name) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "env name must match [a-z0-9][a-z0-9-]{0,62}"})
 		return
 	}
@@ -30,7 +32,7 @@ func createEnv(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "namespace is required"})
 		return
 	}
-	if err := repo.CreateEnv(&e); err == repo.ErrExists {
+	if err := repo.CreateEnv(&e); errors.Is(err, repo.ErrExists) {
 		c.JSON(http.StatusConflict, gin.H{"error": "env " + e.Name + " already exists"})
 		return
 	} else if err != nil {
@@ -40,7 +42,7 @@ func createEnv(c *gin.Context) {
 	c.JSON(http.StatusOK, e)
 }
 
-// ListEnvs GET /api/envs
+// listEnvs GET /api/envs
 func listEnvs(c *gin.Context) {
 	list, err := repo.ListEnvs()
 	if err != nil {
@@ -53,7 +55,7 @@ func listEnvs(c *gin.Context) {
 	c.JSON(http.StatusOK, list)
 }
 
-// UpdateEnv PUT /api/envs/:name —— name 是主键不可改（改=新建+删旧），
+// updateEnv PUT /api/envs/:name —— name 是主键不可改（改=新建+删旧），
 // 只更新 namespace/desc；CreatedAt 从旧档带过来
 func updateEnv(c *gin.Context) {
 	var e models.Env
@@ -66,7 +68,7 @@ func updateEnv(c *gin.Context) {
 		return
 	}
 	e.Name = c.Param("name")
-	if !envNameRe.MatchString(e.Name) {
+	if !nameRe.MatchString(e.Name) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "env name must match [a-z0-9][a-z0-9-]{0,62}"})
 		return
 	}
@@ -75,7 +77,7 @@ func updateEnv(c *gin.Context) {
 		return
 	}
 	old, err := repo.FindEnv(e.Name)
-	if err == repo.ErrNotFound {
+	if errors.Is(err, repo.ErrNotFound) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "env not found"})
 		return
 	} else if err != nil {
@@ -90,9 +92,9 @@ func updateEnv(c *gin.Context) {
 	c.JSON(http.StatusOK, e)
 }
 
-// DeleteEnv DELETE /api/envs/:name
+// deleteEnv DELETE /api/envs/:name
 func deleteEnv(c *gin.Context) {
-	if err := repo.DeleteEnv(c.Param("name")); err == repo.ErrNotFound {
+	if err := repo.DeleteEnv(c.Param("name")); errors.Is(err, repo.ErrNotFound) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "env not found"})
 		return
 	} else if err != nil {

@@ -1,3 +1,4 @@
+// Package config —— 环境配置装配（leaf 包：env 变量 → Config 结构，被所有层消费）。
 package config
 
 import (

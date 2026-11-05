@@ -1,6 +1,8 @@
 package api
 
 import (
+	"errors"
+
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -11,7 +13,7 @@ import (
 
 // ---------- Workflow CRUD（对照 Zadig handler/workflow_v4.go，砍掉鉴权/参数/通知） ----------
 
-// CreateWorkflow POST /api/workflows
+// createWorkflow POST /api/workflows
 func createWorkflow(c *gin.Context) {
 	var wf models.Workflow
 	if err := c.ShouldBindJSON(&wf); err != nil {
@@ -29,10 +31,10 @@ func createWorkflow(c *gin.Context) {
 	c.JSON(http.StatusOK, wf)
 }
 
-// GetWorkflow GET /api/workflows/:name
+// getWorkflow GET /api/workflows/:name
 func getWorkflow(c *gin.Context) {
 	wf, err := repo.FindWorkflow(c.Param("name"))
-	if err == repo.ErrNotFound {
+	if errors.Is(err, repo.ErrNotFound) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "workflow not found"})
 		return
 	}
@@ -43,7 +45,7 @@ func getWorkflow(c *gin.Context) {
 	c.JSON(http.StatusOK, wf)
 }
 
-// ListWorkflows GET /api/workflows
+// listWorkflows GET /api/workflows
 func listWorkflows(c *gin.Context) {
 	list, err := repo.ListWorkflows()
 	if err != nil {
@@ -53,7 +55,7 @@ func listWorkflows(c *gin.Context) {
 	c.JSON(http.StatusOK, list)
 }
 
-// UpdateWorkflow PUT /api/workflows/:name —— 全量更新（前端"保存=删除重建"的正规化：
+// updateWorkflow PUT /api/workflows/:name —— 全量更新（前端"保存=删除重建"的正规化：
 // 图纸名即主键，改名=新建；历史任务档案内嵌快照不受影响）。
 // 形态对齐 UpdateCron：路径名为准 + 不存在 404；body.name 与路径不一致显式 400
 // （编辑器拿错对象的防呆——静默覆盖比报错危险）。
@@ -73,7 +75,7 @@ func updateWorkflow(c *gin.Context) {
 		return
 	}
 	old, err := repo.FindWorkflow(wf.Name)
-	if err == repo.ErrNotFound {
+	if errors.Is(err, repo.ErrNotFound) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "workflow not found"})
 		return
 	} else if err != nil {
@@ -88,7 +90,7 @@ func updateWorkflow(c *gin.Context) {
 	c.JSON(http.StatusOK, wf)
 }
 
-// DeleteWorkflow DELETE /api/workflows/:name
+// deleteWorkflow DELETE /api/workflows/:name
 func deleteWorkflow(c *gin.Context) {
 	if err := repo.DeleteWorkflow(c.Param("name")); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -96,4 +98,3 @@ func deleteWorkflow(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "deleted"})
 }
-

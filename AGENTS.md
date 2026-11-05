@@ -88,12 +88,12 @@ M0 地基 → M1 第一口气（run→Job→轮询→ack→清理，引擎 helm 
 
 ### 代码结构（2026-11-06 模块化重构后，依赖全部单向向下无环；模块名 `pipeline`）
 
-`pkg/config/`(leaf 环境配置) → `pkg/models/`(leaf 领域模型＋ManualExec.Satisfied()) → `pkg/repo/`(mongo 持久层＋GridFS artifacts) →
-`pkg/step/`(脚本执行层：driver.go POSIX 驱动生成 / stepctl.go 五种 StepCtl 注册表 / logs.go banner 解析·切分·收口——只 import models) →
+`pkg/config/`(leaf 环境配置) → `pkg/models/`(leaf 领域模型：结构体＋Status/WorstOf＋纯领域逻辑 ValidateWorkflow/CronMatch/Satisfied/EffectiveSteps/NeedsRunner·WantsDockerSock) → `pkg/repo/`(mongo 持久层＋GridFS artifacts，集合句柄全包内私有) →
+`pkg/step/`(脚本执行层：driver.go POSIX 驱动生成 / StepCtl 接口+工厂，shell/git/dockerbuild/junit/archive 一Ctl一文件全私有 / logs.go banner 解析·切分·收口——只 import models) →
 `pkg/k8s/`(K8s 访问层：client.go 双模式 client / build.go JobName+BuildJob / log.go PodLog+TailJobLog / util.go PodExitInfo+DeleteOpts) →
-`pkg/engine/`(编排核心：run.go Run+taskCtx+runStages+收口 / task.go BuildTask 快照 / trigger.go 统一触发 / queue.go 派发器 / recover.go 启动宣判 / vars.go 变量渲染) 下挂四个子包：
-　`engine/cancel/`(取消注册表 Register/Request/Fired/Tree/ErrCancelled)、`engine/exec/`(JobCtl 接口+Ctx 视图：k8s.go K8sJobCtl+重试+轮询、deploy.go DeployJobCtl+rollout；jobTimeout/pollInterval 在此)、`engine/notify/`(IM 通知 NotifyOnFinish)、`engine/cron/`(定时调度 cron.Start/Match——import engine 用 TriggerWorkflow，engine 不回头 import 它) →
-`pkg/webhook/`(git 签名/载荷/匹配纯逻辑层) → `pkg/api/`(gin handler 层：router+workflow/task 运维+approve+artifact+env/notify/cron CRUD+webhook 编排) → `main.go`(根，仅装配：embed→config→repo.Init→engine.Recover→go exec 派发器→go cron.Start→gin)。
+`pkg/engine/`(编排核心：run.go Run 入口+taskCtx+ack / stages.go stage 状态机+闸门刹车谓词 / jobs.go job 状态机+变量渲染编排+输出收割 / finish.go 终态收口+通知 / task.go BuildTask 快照 / trigger.go 统一触发+spawn 唯一构造序列 / ops.go 任务运维操作面 CloneTask·RetryTask·CancelTask·ReleaseGate·RecordApproval·TaskLog+sentinel 错误 / queue.go 派发器 / recover.go 启动宣判 / vars.go 变量渲染) 下挂四个子包：
+　`engine/cancel/`(取消注册表 Register/Request/Signalled/Tree/ErrCancelled)、`engine/exec/`(JobCtl 接口+Ctx 视图：k8s.go K8sJobCtl+重试+轮询、deploy.go DeployJobCtl+rollout；jobTimeout/pollInterval 在此；整树写回经 Ctx.Ack 由 engine 注入)、`engine/notify/`(IM 通知 NotifyOnFinish)、`engine/cron/`(定时调度 cron.Start(FireFunc)——触发动作回调注入，不 import engine) →
+`pkg/webhook/`(git 签名/载荷/匹配纯逻辑层) → `pkg/api/`(gin handler 层：纯 HTTP 形状翻译——taskFromPath 样板单点、28 个 handler 全包内私有、业务全在 engine/models/repo；workflow/task 运维+approve+artifact+env/notify/cron CRUD+webhook 编排) → `main.go`(根，仅装配：config→repo.Init→engine.Recover→go exec 派发器→go cron.Start(engine.TriggerWorkflow)→gin)。
 另有 `docker/`(引擎/runner/web 三镜像 Dockerfile) `deploy/chart/mini-pipeline/`(helm) `deploy/build-push.sh`/`build-runner.sh`/`build-web.sh`(本机构建) `deploy/test-mvp*.sh`(四门验收)＋`test-m3*.sh`/`test-cicd.sh`(老三门) `deploy/bootstrap-*`(自举) `frontend/`(React 前端，e2e/smoke.mjs jsdom 冒烟)。
 
 ### 验收资产（全部打集群引擎，单一引擎纪律见 §9.20）
