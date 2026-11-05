@@ -81,7 +81,7 @@ func (DeployJobCtl) Run(c *Ctx, jt *models.JobTask) error {
 	//   && unavailableReplicas == 0（没有旧 Pod 苟着）
 	deadline := time.Now().Add(rolloutWaitTimeout)
 	for {
-		if cancel.Fired(c.CancelCh) {
+		if cancel.Signalled(c.CancelCh) {
 			return cancel.ErrCancelled
 		}
 		d, err := c.Client.AppsV1().Deployments(ns).Get(context.TODO(), ds.DeploymentName, metav1.GetOptions{})

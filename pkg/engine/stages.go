@@ -25,7 +25,7 @@ func runStages(tc *taskCtx, t *models.WorkflowTask) {
 
 		// T1.5 取消检查点（stage 边界）：取消信号在 stage 间隙到的，当场收口——
 		// 本 stage 置 skipped，后续 stage 一并 skipped，任务 cancelled
-		if cancel.Fired(tc.cancelCh) {
+		if cancel.Signalled(tc.cancelCh) {
 			st.Status = models.StatusSkipped
 			markRestSkipped(t, st)
 			finish(t, models.StatusCancelled, "cancelled by user")
