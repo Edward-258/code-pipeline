@@ -1,11 +1,19 @@
-# mini-pipeline 前端反代配置（envsubst 模板——nginx 官方镜像启动时渲染）
+# mini-pipeline 前端反代配置（envsubst 模板——nginx 官方镜像启动时渲染）。
 # 统一入口形态：ingress 单条规则指本 Pod，/api 与 /healthz 由 nginx 反代引擎 service，
 # 其余走 SPA fallback（React Router 的前端路由不能 404）。
-# ${MP_ENGINE_UPSTREAM} 由 chart 注入（默认值见 Dockerfile ENV）。
+#
+# ⚠️ 反代必须用"变量 + resolver"的运行时解析形态：
+#   - proxy_pass 直写主机名 = nginx 启动期静态解析，解析不到直接 emerg 拒启
+#   - $engine_upstream 是 nginx 变量，envsubst 不会碰它（官方 20-envsubst 脚本只替换
+#     容器已定义的 env，${MP_ENGINE_UPSTREAM} 才会被换值）
+#   - RESOLVER 占位（模板正文里的井号包裹词）由 docker-entrypoint-resolver.sh
+#     从 resolv.conf 注入（kube-dns / docker embedded dns 通吃）
 server {
     listen 80;
     root /usr/share/nginx/html;
     index index.html;
+
+    #RESOLVER#
 
     # gzip 静态资源（bundle gzip 后 ~400KB → 传输再减 70%）
     gzip on;
@@ -19,7 +27,8 @@ server {
     }
 
     location /api/ {
-        proxy_pass http://${MP_ENGINE_UPSTREAM};
+        set $engine_upstream ${MP_ENGINE_UPSTREAM};
+        proxy_pass http://$engine_upstream;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -28,7 +37,8 @@ server {
 
     # 健康检查直通引擎（验收门 curl /healthz 语义不变）
     location = /healthz {
-        proxy_pass http://${MP_ENGINE_UPSTREAM};
+        set $engine_upstream ${MP_ENGINE_UPSTREAM};
+        proxy_pass http://$engine_upstream;
     }
 
     location / {

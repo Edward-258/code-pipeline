@@ -15,4 +15,7 @@ FROM nginx:alpine
 ENV MP_ENGINE_UPSTREAM=mini-pipeline.pipeline.svc.cluster.local:8080
 COPY --from=build /app/dist /usr/share/nginx/html
 COPY nginx.conf.template /etc/nginx/templates/default.conf.template
+# resolv.conf → resolver 注入钩子（防启动期静态解析 emerg，见脚本头注释）
+COPY docker-entrypoint-resolver.sh /docker-entrypoint.d/99-resolver.sh
+RUN chmod +x /docker-entrypoint.d/99-resolver.sh
 EXPOSE 80
