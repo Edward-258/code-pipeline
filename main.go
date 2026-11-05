@@ -1,11 +1,7 @@
 package main
 
 import (
-	_ "embed" // go:embed []byte 形态：包名未直接引用，blank import（编译器要求）
 	"log"
-	"net/http"
-
-	"github.com/gin-gonic/gin"
 
 	"pipeline/pkg/api"
 	"pipeline/pkg/config"
@@ -13,9 +9,6 @@ import (
 	"pipeline/pkg/engine/cron"
 	"pipeline/pkg/repo"
 )
-
-//go:embed deploy/web/index.html
-var webIndex []byte
 
 func main() {
 	cfg := config.Load()
@@ -29,11 +22,9 @@ func main() {
 	go engine.StartDispatcher() // T1.6 派发器：1s 一拍扫 queued，CAS 抢占后起 Run
 	go cron.Start()             // T3.1 定时触发：对齐整分钟扫 cron 配置
 
+	// 前端已独立成 nginx 镜像 Pod（frontend/ + chart tags.web），经 ingress 统一入口
+	// 反代 /api 到本引擎——引擎只服务 API（go:embed 时代 2026-11-06 收档）
 	r := api.NewRouter()
-	// T4.2：半吊子前端（单 HTML + fetch 轮询，不上框架），embed 进二进制随镜像走
-	r.GET("/", func(c *gin.Context) {
-		c.Data(http.StatusOK, "text/html; charset=utf-8", webIndex)
-	})
 	log.Printf("mini-pipeline listening on %s", cfg.HTTPAddr)
 	if err := r.Run(cfg.HTTPAddr); err != nil {
 		log.Fatalf("server exited: %v", err)

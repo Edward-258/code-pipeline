@@ -7,6 +7,7 @@ tags:
   engine: true    # 引擎本体。镜像需先推入内置 registry（见 deploy/README 或 AGENTS.md）
   mongo: true     # 内置 MongoDB；false 时必须给 connections.mongo.uri
   registry: false # registry:2 已移交 ArgoCD 管理（k3s-gitops 仓库 registry app，2026-11-02）；本开关仅留作全新环境 bootstrap
+  web: true       # React 前端 + nginx 反代 Pod（统一入口承接者，2026-11-06）；false 时 ingress 直连引擎
 
 connections:
   mongo:
@@ -38,6 +39,11 @@ acr:
 service:
   port: 8080
 
+# 前端镜像（React+nginx 多阶段构建，frontend/Dockerfile）：推送走 deploy/build-web.sh
+# （公网端点），此处指 VPC 端点（集群内网拉取，与 image.repo 同实例同款套路）
+web:
+  image: crpi-28fqgwft325ylccc-vpc.cn-heyuan.personal.cr.aliyuncs.com/codepipeline-learning/mini-pipeline-web:0.1.0
+
 ingress:
   enabled: true
   host: pipeline.47.113.177.198.nip.io  # 复用集群现成的 nip.io 入口链路（同 argocd 的用法）
@@ -60,6 +66,7 @@ registry:
 
 resources:
   engine: {}
+  web: {}
   mongo:
     requests: { cpu: 100m, memory: 256Mi }
     limits: { cpu: "1", memory: 1Gi }
