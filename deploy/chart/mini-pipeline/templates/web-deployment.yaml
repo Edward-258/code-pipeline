@@ -1,6 +1,6 @@
 {{- if .Values.tags.web }}
 # 前端 Pod（nginx + React 静态产物 + /api 反代）——统一入口的承接者。
-# 反代上游经 MP_ENGINE_UPSTREAM 注入（nginx envsubst 模板渲染，见 frontend/Dockerfile），
+# 反代上游经 MP_ENGINE_UPSTREAM 注入（nginx envsubst 模板渲染，见 docker/web.Dockerfile），
 # 无 ConfigMap：镜像自包含，本地 docker run 也可用。
 apiVersion: apps/v1
 kind: Deployment
