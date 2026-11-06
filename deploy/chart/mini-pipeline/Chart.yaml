@@ -2,5 +2,5 @@ apiVersion: v2
 name: mini-pipeline
 description: 以 Zadig 为蓝本的微型发布工作流引擎（学习复现）
 type: application
-version: 0.2.0
-appVersion: "0.2.0"
+version: 0.7.2
+appVersion: "0.7.2"  # 与引擎镜像 tag 对齐；部署仍以 --set image.tag 显式覆盖为准（helm v3 不复用 --set）
