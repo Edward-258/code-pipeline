@@ -29,7 +29,7 @@ MVP 已全量落地：变量/重试/取消/队列/CD deploy/archive/自举/cron/
 2. Stage 状态机 + **durable 暂停**（暂停=落库+goroutine 退出，进程重启可恢复）
 3. Job = K8s Job
 
-## 2. 已实现能力全景（截至 2026-11-06，集群镜像 0.7.0 / runner 0.1.1 / web 0.1.2）
+## 2. 已实现能力全景（截至 2026-11-06，集群镜像 0.7.0 / runner 0.2.0 / web 0.1.2）
 
 > 引擎全部能力域均已落地并活体验收：四门（35+20+25+20=100 断言）+ frontend jsdom 冒烟 5 断言在 0.7.0 上全绿，`go test ./pkg/...` 11 包单测绿。历史任务账本（MVP 四阶段，PR #1–#31）见桌面 `mvp复现计划.md`（存档）；踩坑实录全在 §9。以下按能力域描述引擎**现在能做什么**。
 
@@ -145,7 +145,7 @@ deploy/build-push.sh 0.7.0
 helm upgrade mini-pipeline deploy/chart/mini-pipeline --kube-context k3s-heyuan -n pipeline --set image.tag=0.7.0 --set tags.engine=true --wait
 
 # ===== runner 镜像（低频；runner 变更时跑，tag 须同步 chart values runner.image） =====
-deploy/build-runner.sh 0.1.0
+deploy/build-runner.sh 0.2.0
 
 # ===== 验收（活体七门已退役存档 tag acceptance-suite，恢复见 §2 验收资产；现存两件） =====
 go test ./pkg/... -count=1                                                             # 11 包单测（repo 类需 port-forward mongo）
@@ -204,7 +204,7 @@ go test ./pkg/repo/ -v -run TestNextID   # 需先 port-forward mongo
 
 ## 8. 当前部署与验证态势（快照，2026-11-06 深夜）
 
-- 集群 release：helm `mini-pipeline` rev26，引擎 **0.7.0**（结构化重构：engine 四层切面+ops.go+依赖注入+导出面收口，PR #39–#43）+ runner **0.1.1** + **web 0.1.2**（React 前端+nginx Pod，白底主题，`tags.web=true`）；mongo 8.0 / registry:2 / registry-ui 同 ns 共存
+- 集群 release：helm `mini-pipeline` rev28，引擎 **0.7.0**（结构化重构：engine 四层切面+ops.go+依赖注入+导出面收口，PR #39–#43）+ runner **0.2.0**（大满贯：alpine+git/docker-cli/curl+**golang1.27+make/jq**，自动档通吃免"现场选镜像"，PR #48；哲学分叉——Zadig 是一组系统镜像+executor 注入，我们单 runner 全能）+ **web 0.1.2**（React 前端+nginx Pod，白底主题，`tags.web=true`）；mongo 8.0 / registry:2 / registry-ui 同 ns 共存
 - 引擎入口 `https://pipeline.47.113.177.198.nip.io`：ingress 单条规则指 **前端 Pod**，nginx 反代 `/api`、`/healthz` 到引擎 service（统一入口）；健康门 `curl -k …/healthz` 不变；引擎自身无前端路由（API-only）
 - **单引擎纪律**：集群引擎自带派发器，本机 `go run` 引擎与它共用 mongo 时会抢同一条队列（§9.20）——本机引擎只作调试；活体验收已退役（§2 验收资产，存档 tag acceptance-suite），若恢复一律打集群 ingress
 - 改动后的标准循环 = build-push（引擎）/ build-web.sh（前端）→ helm upgrade（--set 显式带全）→ go test + smoke（命令在 §5）；bootstrap 自举图纸可整链发布引擎自身（tag=bootstrap）
