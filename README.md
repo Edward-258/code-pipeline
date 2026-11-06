@@ -195,7 +195,7 @@ wf.json 示例（freestyle 脚本形态）：
 | POST/GET/PUT/DELETE | `/api/crons`（+ `/api/crons/:name/fire`） | 定时配置 + 手动点火 |
 | POST/GET/PUT/DELETE | `/api/notifies` | IM 通知配置（飞书/钉钉） |
 | POST/GET/DELETE | `/api/envs` | 部署目标环境 |
-| POST/GET/PUT/DELETE | `/api/registries` | 镜像仓库管理（is_default 全局唯一；删默认自动选举补位） |
+| POST/GET/PUT/DELETE | `/api/registries` | 镜像仓库管理（is_default 全局唯一；删默认回落"无默认"稳态=裸名推内置本地） |
 
 ## 环境变量
 

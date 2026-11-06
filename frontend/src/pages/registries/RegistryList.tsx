@@ -63,7 +63,7 @@ export default function RegistryList() {
   const remove = async (name: string) => {
     try {
       await deleteRegistry(name)
-      msg.success(`已删除 ${name}（删到默认仓库时引擎自动选举首个剩余补位）`)
+      msg.success(`已删除 ${name}（删到默认仓库时回落"无默认"稳态：裸名 docker_build 推内置本地）`)
       setData(data?.filter((r) => r.name !== name))
     } catch (e) {
       msg.error((e as Error).message)
