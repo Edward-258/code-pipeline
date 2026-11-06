@@ -20,6 +20,7 @@ var (
 	taskColl     *mongo.Collection
 	counterColl  *mongo.Collection
 	envColl      *mongo.Collection
+	registryColl *mongo.Collection
 	cronColl     *mongo.Collection
 	notifyColl   *mongo.Collection
 )
@@ -43,6 +44,7 @@ func Init(uri string) error {
 	taskColl = db.Collection("workflow_task")
 	counterColl = db.Collection("counter")
 	envColl = db.Collection("env")
+	registryColl = db.Collection("registry")
 	cronColl = db.Collection("cron")
 	notifyColl = db.Collection("notify")
 	return nil

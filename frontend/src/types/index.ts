@@ -26,6 +26,7 @@ export interface StepSpec {
   image?: string
   tag?: string
   dockerfile?: string
+  registry?: string // 目标仓库引用（models.Registry 名；空=内置本地/跟随默认）
   // junit_report
   report_glob?: string
   pass_rate?: number
@@ -167,6 +168,16 @@ export interface TaskListResp {
 export interface Env {
   name: string
   namespace: string
+  desc?: string
+  created_at?: string
+}
+
+export interface Registry {
+  name: string
+  address: string
+  username?: string
+  password?: string
+  is_default?: boolean // 全局唯一默认仓库：决定所有裸名 docker_build 的推送目标
   desc?: string
   created_at?: string
 }

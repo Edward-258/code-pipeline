@@ -1,6 +1,8 @@
+import { useEffect, useState } from 'react'
 import { Button, Col, Input, Row, Select, Slider, Typography, Upload } from 'antd'
 import { DeleteOutlined, ImportOutlined, ArrowUpOutlined, ArrowDownOutlined } from '@ant-design/icons'
-import type { StepSpec, StepType } from '../../types'
+import type { Registry, StepSpec, StepType } from '../../types'
+import { listRegistries } from '../../api/resources'
 
 // 单个步骤的编辑表单 —— 5 种类型共享骨架，按 type 显隐专属字段（后端 StepSpec 就是扁平结构，
 // 前端如实呈现：字段即协议，不搞每类型一个子 schema 的过度设计）
@@ -25,6 +27,12 @@ interface Props {
 }
 
 export default function StepForm({ step, index, total, onChange, onRemove, onMove }: Props) {
+  // 仓库下拉数据源（docker_build 目标仓库）：挂载时拉一次，编辑器页不需轮询
+  const [registries, setRegistries] = useState<Registry[]>([])
+  useEffect(() => {
+    listRegistries().then(setRegistries).catch(() => { /* 引擎不可达时下拉留内置项 */ })
+  }, [])
+
   // 本地脚本导入：读文件内容填进 script 字段（纯前端 FileReader，不上传）
   const importScript = (file: File) => {
     const reader = new FileReader()
@@ -87,10 +95,22 @@ export default function StepForm({ step, index, total, onChange, onRemove, onMov
 
       {step.type === 'docker_build' && (
         <Row gutter={10}>
-          <Col span={8}><Input addonBefore="镜像" placeholder="mini-demo（无前缀自动进集群 registry）" value={step.image} onChange={(e) => onChange({ image: e.target.value })} /></Col>
-          <Col span={4}><Input addonBefore="tag" placeholder="latest" value={step.tag} onChange={(e) => onChange({ tag: e.target.value })} /></Col>
-          <Col span={6}><Input addonBefore="Dockerfile" placeholder="Dockerfile" value={step.dockerfile} onChange={(e) => onChange({ dockerfile: e.target.value })} /></Col>
-          <Col span={6}><Input addonBefore="上下文" placeholder="." value={step.context_dir} onChange={(e) => onChange({ context_dir: e.target.value })} /></Col>
+          <Col span={6}>
+            <Select
+              style={{ width: '100%' }} value={step.registry ?? ''}
+              onChange={(v) => onChange({ registry: v || undefined })}
+              options={[
+                { value: '', label: '内置集群 registry' },
+                ...registries.map((r) => ({
+                  value: r.name, label: r.name + (r.is_default ? '（默认）' : ''),
+                })),
+              ]}
+            />
+          </Col>
+          <Col span={6}><Input addonBefore="镜像" placeholder="mini-demo / 相对仓库名" value={step.image} onChange={(e) => onChange({ image: e.target.value })} /></Col>
+          <Col span={3}><Input addonBefore="tag" placeholder="latest" value={step.tag} onChange={(e) => onChange({ tag: e.target.value })} /></Col>
+          <Col span={5}><Input addonBefore="Dockerfile" placeholder="Dockerfile" value={step.dockerfile} onChange={(e) => onChange({ dockerfile: e.target.value })} /></Col>
+          <Col span={4}><Input addonBefore="上下文" placeholder="." value={step.context_dir} onChange={(e) => onChange({ context_dir: e.target.value })} /></Col>
         </Row>
       )}
 

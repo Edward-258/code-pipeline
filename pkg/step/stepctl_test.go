@@ -101,3 +101,43 @@ func TestJunitGate(t *testing.T) {
 	}
 	_ = allPass
 }
+
+// TestDockerBuildCtlRegistryRef —— 仓库引用档（2026-11-07）：全名拼接 + stdin 登录 + 单引号转义
+func TestDockerBuildCtlRegistryRef(t *testing.T) {
+	frag, err := (&dockerBuildCtl{spec: &models.StepSpec{
+		Name: "img", Type: models.StepDockerBuild, Image: "codepipeline-learning/app", Tag: "v2",
+		RegAddr: "crpi-x.aliyuncs.com", RegUser: "nick", RegPass: "p'a$$",
+	}}).PreRun()
+	if err != nil {
+		t.Fatalf("PreRun: %v", err)
+	}
+	if !strings.Contains(frag, `-t 'crpi-x.aliyuncs.com/codepipeline-learning/app:v2'`) {
+		t.Errorf("full image name addr/relative:tag expected: %s", frag)
+	}
+	if !strings.Contains(frag, `docker login -u 'nick' --password-stdin 'crpi-x.aliyuncs.com'`) {
+		t.Errorf("stdin login expected: %s", frag)
+	}
+	// login 链路必须包在子 shell + 临时 DOCKER_CONFIG 里（/root/.docker hostPath 只读，login 写不进去）
+	if !strings.Contains(frag, "( export DOCKER_CONFIG=/tmp/.docker && ") || !strings.HasSuffix(frag, " )") {
+		t.Errorf("login must be subshell-wrapped with temp DOCKER_CONFIG: %s", frag)
+	}
+	// 密码含单引号必须被 POSIX 转义（p'a$$ → 'p'\''a$$'），否则驱动脚本被掀翻
+	if !strings.Contains(frag, "printf '%s' 'p'\\''a$$'") {
+		t.Errorf("password must be single-quote escaped: %s", frag)
+	}
+	if strings.Contains(frag, "MP_NODE_REGISTRY") {
+		t.Errorf("ref mode must not use local registry prefix: %s", frag)
+	}
+
+	// 免认证仓库：无 username 则跳过 login（registry:2 类内网裸仓）
+	frag, _ = (&dockerBuildCtl{spec: &models.StepSpec{
+		Name: "img", Type: models.StepDockerBuild, Image: "app",
+		RegAddr: "registry.pipeline.svc:5000",
+	}}).PreRun()
+	if strings.Contains(frag, "docker login") {
+		t.Errorf("credential-less registry must skip login: %s", frag)
+	}
+	if !strings.Contains(frag, "-t 'registry.pipeline.svc:5000/app:latest'") {
+		t.Errorf("default tag latest expected: %s", frag)
+	}
+}

@@ -47,6 +47,13 @@
 
 - **环境集合**（env = 名字 → namespace）：deploy job 的靶标映射，CRUD 全路径
 - **deploy job**：不起 K8s Job 不挂 docker.sock——引擎 client-go StrategicMergePatch 直改 Deployment 镜像字段（只动目标容器），然后轮询 rollout（observedGeneration 追上 + 新副本齐 + 无不可用副本）；`wait_rollout=false` 专为"自举发布自己"防绞杀
+- **镜像仓库管理**（2026-11-07，对照 Zadig registry_namespace 的极简版）：registry = 推送目标资源（地址/凭证/默认标记）CRUD；docker_build 推送目标三档解析（driver 编译前烘焙，凭证不落任务档案，retry/clone 拿当前值）：
+
+  | 优先级 | 图纸写法 | 行为 |
+  |---|---|---|
+  | 1 | 显式 `registry: <名>` | 推到该仓库，凭证随脚本 `docker login`（--password-stdin + 临时 DOCKER_CONFIG，不写回节点） |
+  | 2 | 裸名（无仓库前缀）+ 存在默认仓库 | 跟随 `is_default` 记录推送（⚠️ 设默认会改变所有裸名图纸的推送目标） |
+  | 3 | 其余 | 原行为：全名直推（/root/.docker 兜底）/ 无默认时裸名推集群内置 registry:2 |
 - **密封构建链路**：shell 造 Dockerfile → docker_build 推节点 registry:2（NodePort 30500）→ 临时 Job 经 kubelet `localhost:5000` mirror 拉起产物运行
 
 ### 协作与通知
@@ -64,8 +71,8 @@
 
 ### 自举彩蛋（已活体闭环）
 
-`deploy/bootstrap-workflow.json`：克隆本仓库 → go test 门禁 → docker_build 推 ACR `tag=bootstrap` → deploy job patch 引擎**自身**的 Deployment（`wait_rollout=false`）。
-"用流水线发布流水线自身"——集群引擎现跑的就是它自建的 `:bootstrap` 镜像。
+`deploy/bootstrap-workflow.json`：克隆本仓库 → go test 门禁 → docker_build 推 ACR `tag=bootstrap`（走 registry 引用 `acr`，Pod 内自行 login）→ deploy job patch 引擎**自身**的 Deployment（`wait_rollout=false`）。
+"用流水线发布流水线自身"——集群引擎现跑的就是它自建的 `:bootstrap` 镜像。`bootstrap-ensure.sh` 幂等落库 env self + registry acr。
 
 ## 架构
 
@@ -112,7 +119,7 @@ frontend/          React 18 + TS + antd 5 前端（Vite 构建，e2e/ 下 jsdom 
 ## 快速开始
 
 ```bash
-# 一条命令起全家桶（mongo/引擎；registry:2 归 ArgoCD 管，见下"镜像分发链路"）
+# 一条命令起全家桶（mongo/引擎/registry:2 七件套/前端；详见下"镜像分发链路"）
 helm install mini-pipeline deploy/chart/mini-pipeline --kube-context k3s-heyuan -n pipeline --create-namespace
 
 # 引擎入口
@@ -188,6 +195,7 @@ wf.json 示例（freestyle 脚本形态）：
 | POST/GET/PUT/DELETE | `/api/crons`（+ `/api/crons/:name/fire`） | 定时配置 + 手动点火 |
 | POST/GET/PUT/DELETE | `/api/notifies` | IM 通知配置（飞书/钉钉） |
 | POST/GET/DELETE | `/api/envs` | 部署目标环境 |
+| POST/GET/PUT/DELETE | `/api/registries` | 镜像仓库管理（is_default 全局唯一；删默认自动选举补位） |
 
 ## 环境变量
 
@@ -222,7 +230,7 @@ go test ./pkg/... -count=1                            # 11 包单测（repo 类�
 三条链路互不干扰：
 
 1. **引擎 + runner 镜像 → 阿里云 ACR 个人版**（独立实例，crpi- 前缀域名）：push 走公网端点（`deploy/build-push.sh <tag>` / `build-runner.sh <tag>` 本机直构直推；build 必须 `--provenance=false`——ACR 拒收 BuildKit 默认的 attestation 清单），pull 走 `-vpc` 端点（集群内网免公网流量），凭证 = chart 内 imagePullSecret `acr-credential`
-2. **流水线产物镜像（docker_build 步骤）→ 集群内 registry:2**：节点 docker push `<nodeIP>:30500`（NodePort 仅内网），kubelet 经三节点 registries.yaml 的 `localhost:5000` mirror 无感知拉取；registry:2 资源归 ArgoCD 管（k3s-gitops）
+2. **流水线产物镜像（docker_build 步骤）→ 集群内 registry:2**：节点 docker push `<nodeIP>:30500`（NodePort 仅内网），kubelet 经三节点 registries.yaml 的 `localhost:5000` mirror 无感知拉取；registry:2 七件套（本体 + joxit UI + 双 ingress + PVC）由本 chart `tags.registry` 渲染（2026-11-07 从 ArgoCD 收回管理权，PVC 经 `existingClaim` 原地认领，`helm.sh/resource-policy: keep` 护体）
 3. **对外入口**：ingress-nginx + nip.io（`https://pipeline.47.113.177.198.nip.io`），零新增公网端口
 
 改代码后的标准循环：

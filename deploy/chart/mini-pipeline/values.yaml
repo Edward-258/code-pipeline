@@ -6,7 +6,7 @@
 tags:
   engine: true    # 引擎本体。镜像需先推入内置 registry（见 deploy/README 或 AGENTS.md）
   mongo: true     # 内置 MongoDB；false 时必须给 connections.mongo.uri
-  registry: false # registry:2 已移交 ArgoCD 管理（k3s-gitops 仓库 registry app，2026-11-02）；本开关仅留作全新环境 bootstrap
+  registry: true  # registry:2 七件套（本体+UI+双 ingress+PVC）：2026-11-07 管理权从 ArgoCD 收回本 chart（§9.21）
   web: true       # React 前端 + nginx 反代 Pod（统一入口承接者，2026-11-06）；false 时 ingress 直连引擎
 
 connections:
@@ -43,7 +43,7 @@ service:
 # 前端镜像（React+nginx 多阶段构建，docker/web.Dockerfile）：推送走 deploy/build-web.sh
 # （公网端点），此处指 VPC 端点（集群内网拉取，与 image.repo 同实例同款套路）
 web:
-  image: crpi-28fqgwft325ylccc-vpc.cn-heyuan.personal.cr.aliyuncs.com/codepipeline-learning/mini-pipeline-web:0.1.2
+  image: crpi-28fqgwft325ylccc-vpc.cn-heyuan.personal.cr.aliyuncs.com/codepipeline-learning/mini-pipeline-web:0.1.3
 
 ingress:
   enabled: true
@@ -59,11 +59,21 @@ mongo:
     size: 5Gi
 
 registry:
-  # ⚠️ 生产真相源在 k3s-gitops 仓库（ArgoCD registry app，含对外 ingress）；此处仅 bootstrap 参考
+  # docker_build 步骤的产物仓库（七件套定义在 templates/registry.yaml）。名字/端口/selector
+  # 是硬契约：节点 docker push 127.0.0.1:30500 与 kubelet localhost:5000 mirror 全指着它
   image: registry:2
   nodePort: 30500   # 仅内网使用：安全组不对公网放行；节点间走同组内网互通规则
+  ingress:
+    host: registry.47.113.177.198.nip.io     # 本机 Docker Desktop 直连（daemon.json 加 insecure-registries）
+  ui:
+    image: joxit/docker-registry-ui:2
+    title: mini-pipeline Registry
+    ingress:
+      host: registry-ui.47.113.177.198.nip.io
   persistence:
+    existingClaim: registry-data  # ⭐ 认领存量 PVC（local-path，节点绑定 worker-1）；置空则按 size/storageClass 新建
     size: 5Gi
+    storageClass: local-path
 
 resources:
   engine: {}

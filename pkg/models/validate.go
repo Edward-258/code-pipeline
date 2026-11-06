@@ -67,6 +67,11 @@ func ValidateWorkflow(wf *Workflow) error {
 				default:
 					return fmt.Errorf("stage[%d].job[%d]: unknown step type %q", i, j, ss.Type)
 				}
+				// 2026-11-07：docker_build 的目标仓库引用形状校验（存在性在触发/克隆时由
+				// BuildTask 烘焙解析把关——校验层摸不到 repo，只能查形状）
+				if ss.Type == StepDockerBuild && ss.Registry != "" && !regNameRe.MatchString(ss.Registry) {
+					return fmt.Errorf("stage[%d].job[%d]: step %q registry must match [a-z0-9][a-z0-9-]{0,62}", i, j, ss.Name)
+				}
 			}
 		}
 	}

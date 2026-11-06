@@ -120,9 +120,13 @@ type StepSpec struct {
 	Branch       string  `bson:"branch,omitempty"     json:"branch,omitempty"`           // git：默认 main
 	Token        string  `bson:"token,omitempty"      json:"token,omitempty"`            // git：私有仓库访问令牌（注入 URL）
 	ContextDir   string  `bson:"context_dir,omitempty" json:"context_dir,omitempty"`     // git 检出目录 / docker_build 上下文（相对当前目录）
-	Image        string  `bson:"image,omitempty"      json:"image,omitempty"`            // docker_build：产物镜像名
+	Image        string  `bson:"image,omitempty"      json:"image,omitempty"`            // docker_build：产物镜像名（registry 引用模式下为相对仓库名）
 	Tag          string  `bson:"tag,omitempty"        json:"tag,omitempty"`              // docker_build：默认 latest
 	Dockerfile   string  `bson:"dockerfile,omitempty" json:"dockerfile,omitempty"`       // docker_build：默认 ./Dockerfile
+	Registry     string  `bson:"registry,omitempty"   json:"registry,omitempty"`         // docker_build：目标仓库引用（models.Registry 名；空=无引用）
+	RegAddr      string  `bson:"reg_addr,omitempty"   json:"reg_addr,omitempty"`         // ↓ 三件由引擎快照时烘焙（Zadig 数据直通：
+	RegUser      string  `bson:"reg_user,omitempty"   json:"reg_user,omitempty"`         //   镜像名与凭证随任务快照走，执行侧只管
+	RegPass      string  `bson:"reg_pass,omitempty"   json:"reg_pass,omitempty"`         //   docker login + build/push；明文姿态与 values 同档）
 	ReportGlob   string  `bson:"report_glob,omitempty"   json:"report_glob,omitempty"`   // junit_report：XML 通配
 	PassRate     float64 `bson:"pass_rate,omitempty"     json:"pass_rate,omitempty"`     // junit_report：门禁 (0,1]，默认 1.0=100%
 	ArtifactGlob string  `bson:"artifact_glob,omitempty" json:"artifact_glob,omitempty"` // archive：产物路径 glob（相对工作区）
@@ -133,7 +137,7 @@ type StepSpec struct {
 const (
 	StepShell       = "shell"        // 任意 shell 片段
 	StepGit         = "git"          // git clone --depth 1
-	StepDockerBuild = "docker_build" // 宿主 docker.sock 构建 + 推 registry:2
+	StepDockerBuild = "docker_build" // 宿主 docker.sock 构建 + 推镜像仓库（registry 引用/默认仓库/内置本地三档，见 StepSpec.Registry）
 	StepJunitReport = "junit_report" // 收集 junit XML + 通过率门禁（门禁判定在引擎侧 AfterRun）
 	StepArchive     = "archive"      // T2.4：打包产物 → 上传引擎 GridFS → API 下载（Zadig 三种归档步骤合并为一种）
 )
@@ -172,6 +176,18 @@ func (s *FreestyleSpec) WantsDockerSock() bool {
 		}
 	}
 	return false
+}
+
+// HasRegistryPrefix —— 镜像名首段含 '.'/':' 或就是 localhost 视为已带仓库前缀
+// （"mini-demo" → 裸名；"172.29.x.x:3050/foo"、ACR 全名 → 已带）。裸名判定是
+// 推送目标解析的分支依据（engine.BuildTask 快照解析与 step 渲染共用这一个真相源，
+// 原在 step/dockerbuild.go，2026-11-07 registry 管理上移）。
+func HasRegistryPrefix(image string) bool {
+	first := image
+	if i := strings.Index(image, "/"); i >= 0 {
+		first = image[:i]
+	}
+	return first == "localhost" || strings.ContainsAny(first, ".:")
 }
 
 // Satisfied —— T3.4 审批策略判定（纯函数，原 engine.ApprovalSatisfied 随模块化迁入）：

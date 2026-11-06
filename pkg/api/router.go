@@ -39,6 +39,11 @@ func NewRouter() *gin.Engine {
 		api.GET("/envs", listEnvs)
 		api.PUT("/envs/:name", updateEnv)
 		api.DELETE("/envs/:name", deleteEnv)
+		// 2026-11-07：镜像仓库管理（docker_build 的推送目标；is_default 决定裸名图纸推哪）
+		api.POST("/registries", createRegistry)
+		api.GET("/registries", listRegistries)
+		api.PUT("/registries/:name", updateRegistry)
+		api.DELETE("/registries/:name", deleteRegistry)
 
 		// M1：run / task 查询
 		api.POST("/workflows/:name/run", runWorkflow)

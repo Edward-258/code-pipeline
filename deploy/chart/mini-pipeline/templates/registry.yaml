@@ -1,10 +1,16 @@
 {{- if .Values.tags.registry }}
-# 内置 registry:2 —— M5 之前的镜像分发通道
+# 内置 registry:2 七件套 —— docker_build 步骤的产物仓库（2026-11-07 管理权回归本 chart）。
+#
+# 前史：M5 时代本文件只渲染三件（deploy/svc/pvc）；2026-11-02 移交 ArgoCD（k3s-gitops
+# registry app，补齐对外 ingress + joxit UI）；2026-11-07 用户拍板收回——gitops 侧
+# registry app 拆除，本文件扩成七件套原地收编（反向接管实录见 AGENTS.md §9.21：摘
+# finalizer → git 拆除 → argocd prune 级联（PVC 靠 keep 注解幸存）→ helm 重建六件无状态对象）。
 #
 # 暴露设计（公网零新端口）：
 #   push 侧：在任一节点上 docker push 127.0.0.1:30500/...（本机回环 HTTP registry 免配置）
-#   pull 侧：各节点 /etc/rancher/k3s/registries.yaml 把 "localhost:5000" mirror 到 http://127.0.0.1:30500
+#   pull 侧：各节点 /etc/rancher/k3s/registries.yaml 把 "localhost:5000" mirror 到各节点内网 IP:30500
 #   镜像名两边一致（registry 存储时剥离 host 前缀），kubelet 无感知
+#   对外：ingress 反代 registry.<EIP>.nip.io（本机 Docker Desktop 直连，daemon.json 加 insecure-registries）
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -42,10 +48,11 @@ spec:
       volumes:
         - name: data
           persistentVolumeClaim:
-            claimName: registry-data
+            claimName: {{ .Values.registry.persistence.existingClaim | default "registry-data" }}
 ---
 # NodePort 30500 只走内网：安全组不对公网放行；
-# 节点间流量由安全组已有的同组互通规则（System created rule -1/-1）覆盖
+# 节点间流量由安全组已有的同组互通规则（System created rule -1/-1）覆盖。
+# 名字/端口/selector 是硬契约：节点 push 链路 + kubelet mirror 全指着它，动即断链
 apiVersion: v1
 kind: Service
 metadata:
@@ -60,15 +67,126 @@ spec:
       targetPort: 5000
       nodePort: {{ .Values.registry.nodePort }}
 ---
+# 对外通道：本机（WSL/Windows Docker Desktop）直连镜像仓库
+# ⚠️ registry 无认证无 TLS，经 ingress 后公网 HTTP 可达，仅限学习期接受（镜像非敏感）
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: registry
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"          # 同 mini-pipeline：纯 HTTP 直连
+    nginx.ingress.kubernetes.io/backend-protocol: "HTTP"
+    nginx.ingress.kubernetes.io/proxy-body-size: "0"           # 镜像层动辄几十 MB，默认 1m 必 413
+    nginx.ingress.kubernetes.io/proxy-request-buffering: "off" # 推层流式转发，不在 nginx 侧落盘
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: {{ .Values.registry.ingress.host }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: registry
+                port:
+                  number: 5000
+---
+# registry 前端 —— joxit/docker-registry-ui:2（内嵌 nginx）
+# 代理模式：NGINX_PROXY_PASS_URL 让 UI 同源反代 registry 的 /v2/ API，
+# 浏览器只访问 UI 一个 origin，registry 侧零 CORS 配置
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: registry-ui
+  namespace: {{ .Release.Namespace }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: registry-ui
+  template:
+    metadata:
+      labels:
+        app: registry-ui
+    spec:
+      containers:
+        - name: registry-ui
+          image: {{ .Values.registry.ui.image }}
+          env:
+            - name: SINGLE_REGISTRY
+              value: "true"                  # 单 registry 部署，藏掉切换端点的菜单
+            - name: REGISTRY_TITLE
+              value: {{ .Values.registry.ui.title | quote }}
+            - name: NGINX_PROXY_PASS_URL
+              value: "http://registry.{{ .Release.Namespace }}.svc.cluster.local:5000"
+            - name: NGINX_RESOLVER
+              value: "10.43.0.10"            # CoreDNS：registry Pod 重建换 IP 时 nginx 动态解析，不缓存旧地址
+            - name: DELETE_IMAGES
+              value: "true"                  # registry 侧 REGISTRY_STORAGE_DELETE_ENABLED 已开（学习期清理）
+            - name: SHOW_CONTENT_DIGEST
+              value: "true"
+            - name: REGISTRY_SECURED
+              value: "false"
+          ports:
+            - containerPort: 80
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 3
+            periodSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: registry-ui
+  namespace: {{ .Release.Namespace }}
+spec:
+  selector:
+    app: registry-ui
+  ports:
+    - port: 80
+      targetPort: 80
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: registry-ui
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: {{ .Values.registry.ui.ingress.host }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: registry-ui
+                port:
+                  number: 80
+---
+{{- if not .Values.registry.persistence.existingClaim }}
+# 新环境 bootstrap 才渲染 PVC；存量 PVC 走 existingClaim 原地认领（照 mongo.persistence 模式）。
+# keep 注解是命根子：helm/argocd 谁来摘除都不许动数据卷（§9.21 级联事变里它救了整个镜像库）
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: registry-data
   namespace: {{ .Release.Namespace }}
+  annotations:
+    helm.sh/resource-policy: keep
 spec:
   accessModes:
     - ReadWriteOnce
+  storageClassName: {{ .Values.registry.persistence.storageClass }}
   resources:
     requests:
       storage: {{ .Values.registry.persistence.size }}
+{{- end }}
 {{- end }}

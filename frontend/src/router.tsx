@@ -5,6 +5,7 @@ import WorkflowEditor from './pages/editor/WorkflowEditor'
 import TaskList from './pages/tasks/TaskList'
 import TaskDetail from './pages/tasks/TaskDetail'
 import EnvList from './pages/envs/EnvList'
+import RegistryList from './pages/registries/RegistryList'
 import NotifyList from './pages/notifies/NotifyList'
 import CronList from './pages/crons/CronList'
 
@@ -21,6 +22,7 @@ export const router = createBrowserRouter([
       { path: 'tasks', element: <TaskList /> },
       { path: 'tasks/:wf/:id', element: <TaskDetail /> },
       { path: 'envs', element: <EnvList /> },
+      { path: 'registries', element: <RegistryList /> },
       { path: 'notifies', element: <NotifyList /> },
       { path: 'crons', element: <CronList /> },
     ],
