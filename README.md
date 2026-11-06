@@ -38,10 +38,10 @@
 
 ### CI 步骤体系
 
-- **五种步骤**：`shell` / `git`（--depth 1 + token 注入）/ `docker_build`（遥控节点 daemon 构建）/ `junit_report`（通过率门禁，默认 100% 翻红）/ `archive`（tar.gz → GridFS 上传下载，32MB 上限）
+- **五种步骤**：`shell` / `git`（--depth 1 + token 注入）/ `docker_build`（遥控节点 daemon 构建，推送目标三档见下"CD 与部署"）/ `junit_report`（通过率门禁，默认 100% 翻红）/ `archive`（tar.gz → GridFS 上传下载，32MB 上限）
 - **bash driver + banner 协议**：引擎把 steps 编译成 POSIX sh 驱动脚本，Pod stdout 就是步骤状态信道（`===MP=== STEP-START/END` + `OUTPUT k=v`）——与 Zadig jobexecutor+ConfigMap 信息流等价但零新依赖零 RBAC；首行 `exec 2>&1` 单流化（根治 containerd 双 copier 乱序）、EXIT trap 补发末班 banner
 - **分步日志**：`GET /api/tasks/:wf/:id/log?stage=&job=`——活任务透传 Pod 日志尾部，终态回档案按 banner 切段（64KB 保尾截断）
-- **镜像三档**：`spec.image` > runner（alpine+git+docker-cli+curl）> busybox
+- **镜像三档**：`spec.image` > runner 0.2.0（大满贯单镜像：alpine + git/docker-cli/curl/make/jq + **golang 1.27 工具链**，自动档通吃免"现场选镜像"）> busybox
 
 ### CD 与部署
 
@@ -66,7 +66,7 @@
 
 - React 18 + TypeScript(strict) + antd 5（Vite 构建），独立 nginx 镜像跑 Pod：ingress 统一入口，nginx 反代 `/api`、`/healthz` 到引擎（envsubst 模板 + 运行时 resolver）
 - **可视化多阶段编辑器**：stage 管道卡片（并行开关 + 审批闸门 any/all）→ job（freestyle/deploy 二选一，镜像自动/自定义、retry/超时/错误策略、deploy 靶标 env 下拉）→ 5 种步骤表单（shell 支持本地脚本导入 + 手写、git、docker_build、junit 门禁、archive）+ JSON 双模逃生舱；保存走 PUT（真更新，非删除重建）
-- 任务详情三级树 + 分步日志抽屉 + cancel/retry/clone/approve/release；环境/通知/定时完整 CRUD（编辑/启用开关/手动点火）
+- 任务详情三级树 + 分步日志抽屉 + cancel/retry/clone/approve/release；环境/镜像仓库/通知/定时完整 CRUD（编辑/启用开关/手动点火）
 - 质量门：tsc strict 零错构建 + jsdom 真执行冒烟（React 真挂载/真路由切换/真引擎数据）——"字符串在位"≠"脚本活着"（曾配套的四门 bundle 语法门已随验收脚本存档 tag acceptance-suite）
 
 ### 自举彩蛋（已活体闭环）
@@ -105,14 +105,14 @@ pkg/
 │   │              task.go 快照 / trigger.go 统一触发（spawn 唯一构造序列）/ ops.go 任务运维操作面
 │   │              queue.go 派发器 / recover.go 宣判 / vars.go 变量
 │   ├── cancel/    取消注册表（Register/Request/Signalled/Tree）
-│   ├── exec/      JobCtl 执行器（K8sJobCtl 重试+轮询 / DeployJobCtl rollout；ack 经 Ctx 由 engine 注入）
+│   ├── exec/      JobCtl 执行器（K8sJobCtl 重试+轮询 / DeployJobCtl rollout / registry.go 推送目标三档解析；ack 经 Ctx 由 engine 注入）
 │   ├── notify/    IM 通知
 │   └── cron/      定时调度（FireFunc 回调注入触发动作，不 import engine）
 ├── webhook/       git 签名/载荷/匹配纯逻辑
 └── api/           gin handler 层：纯 HTTP 形状翻译（业务全在 engine/models/repo；handler 全包内私有）
 main.go            仅装配：config→repo.Init→Recover→派发器→cron→gin
 docker/            三镜像 Dockerfile：引擎 / runner / web（React+nginx）
-deploy/            chart/ + build-push.sh + build-runner.sh + build-web.sh + test-*.sh + bootstrap-*
+deploy/            chart/ + build-push.sh + build-runner.sh + build-web.sh + bootstrap-*（验收脚本已退役存档 tag acceptance-suite）
 frontend/          React 18 + TS + antd 5 前端（Vite 构建，e2e/ 下 jsdom 冒烟）
 ```
 
@@ -205,7 +205,7 @@ wf.json 示例（freestyle 脚本形态）：
 | HTTP_ADDR | :8080 | 监听地址 |
 | K8S_NAMESPACE | pipeline | K8s Job 所在 namespace |
 | K8S_CONTEXT | （空） | 仅本机调试：kubeconfig context（如 k3s-heyuan）；集群内留空走 InClusterConfig |
-| RUNNER_IMAGE | crpi-…-vpc…/codepipeline-learning/pipeline-runner:0.1.0 | git/docker_build/archive 步骤的默认 Job 容器（chart values runner.image 注入，升 tag 不用重编引擎） |
+| RUNNER_IMAGE | crpi-…-vpc…/codepipeline-learning/pipeline-runner:0.2.0 | git/docker_build/archive 步骤的默认 Job 容器（chart values runner.image 注入，升 tag 不用重编引擎） |
 | MAX_RUNNING_TASKS | 3 | 全局并发上限；0 = 停止派发只收尾（维护用） |
 | MP_ENGINE_URL | http://mini-pipeline.<ns>.svc:8080 | Pod 内访问引擎（archive 上传用） |
 
@@ -244,7 +244,7 @@ helm upgrade mini-pipeline deploy/chart/mini-pipeline --kube-context k3s-heyuan 
 
 三条灵魂（及格线，缺一不算复现）：**图纸/实例分离**（task 内嵌当时的完整定义快照）、**durable 暂停**（暂停=落库+goroutine 退出，进程重启可恢复）、**Job = K8s Job**。
 
-有意分叉：pause 不进启动宣判扫描集（Zadig 连 waiting-approve 一起取消；我们是无需看护人的稳态）；bash driver + banner 协议替代 jobexecutor 二进制 + ConfigMap 回传（信息流等价、路径更短）；轮询替代 watch；砍掉 RBAC/身份系统/多集群。更多源码级对照见 AGENTS.md §6/§7。
+有意分叉：pause 不进启动宣判扫描集（Zadig 连 waiting-approve 一起取消；我们是无需看护人的稳态）；bash driver + banner 协议替代 jobexecutor 二进制 + ConfigMap 回传（信息流等价、路径更短）；轮询替代 watch；registry 管理复刻其单表+is_default 骨架但**删默认回落"无默认"稳态不做选举补位**（Zadig 的"无默认"= 部署失败必须有人站；我们的"无默认"= 裸名回落内置本地，是设计好的稳态）；砍掉 RBAC/身份系统/多集群。更多源码级对照见 AGENTS.md §6/§7。
 
 ## 工程上下文
 
