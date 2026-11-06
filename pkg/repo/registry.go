@@ -96,8 +96,11 @@ func UpdateRegistry(r *models.Registry) error {
 	return nil
 }
 
-// DeleteRegistry —— 删到默认仓库时选举首个剩余补位（Zadig 语义：默认位永远有人站，
-// 否则裸名图纸的推送目标随一次删除悄悄漂回内置本地）
+// DeleteRegistry —— 删除即终了：删到默认仓库就回落"无默认"稳态（裸名 docker_build
+// 回落内置本地）。有意分叉自 Zadig（它删默认会选举首个剩余补位）——它的语义里"没有
+// 默认"会导致部署/拉取失败所以必须有人站；我们的三档推送里"无默认 = 回落内置"是
+// 设计好的一等状态，强行选举反而制造"删一个仓库 → 所有裸名图纸目标静默漂到任意
+// 历史记录"的意外（bootstrap-5 gate 活体抓的：共享库里选举选中了 _id 最前的生产记录）
 func DeleteRegistry(name string) error {
 	res, err := registryColl.DeleteOne(context.TODO(), bson.M{"_id": name})
 	if err != nil {
@@ -105,13 +108,6 @@ func DeleteRegistry(name string) error {
 	}
 	if res.DeletedCount == 0 {
 		return ErrNotFound
-	}
-	first, err := ListRegistries()
-	if err != nil {
-		return err
-	}
-	if len(first) > 0 && !anyDefault(first) {
-		return electDefault(first[0].Name)
 	}
 	return nil
 }
@@ -123,19 +119,5 @@ func clearDefaultRegistry(exclude string) error {
 		q["_id"] = bson.M{"$ne": exclude}
 	}
 	_, err := registryColl.UpdateMany(context.TODO(), q, bson.M{"$unset": bson.M{"is_default": ""}})
-	return err
-}
-
-func anyDefault(rs []*models.Registry) bool {
-	for _, r := range rs {
-		if r.IsDefault {
-			return true
-		}
-	}
-	return false
-}
-
-func electDefault(name string) error {
-	_, err := registryColl.UpdateOne(context.TODO(), bson.M{"_id": name}, bson.M{"$set": bson.M{"is_default": true}})
 	return err
 }
