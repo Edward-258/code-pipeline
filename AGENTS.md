@@ -77,7 +77,7 @@ M0 地基 → M1 第一口气（run→Job→轮询→ack→清理，引擎 helm 
 - workflow/env **PUT 端点已补**（PR #33）：PUT /api/workflows/:name、PUT /api/envs/:name——全量替换、路径名为准、name 不一致 400、created_at 从旧档带过来；前端"保存=删除重建"时代结束
 - **React 前端**（2026-11-06 重构，PR #34–#36）：`frontend/`（Vite+TS strict+antd5，暗色 teal 侧边栏自成一体）；页面 = 工作流列表/**可视化四层编辑器**（stage 管道卡片+并行开关+审批闸门；job freestyle/deploy 二选一：镜像自动/自定义+retry/timeout/error_policy、deploy 靶标四项+env 下拉；5 种 step 表单含 **shell 本地脚本导入（FileReader）+手写**；JSON 双模逃生舱）/任务列表过滤分页/任务详情三级树（分步日志抽屉+cancel/retry/clone/approve/release）；api 层 typed client 对齐 24 端点、usePolling（setTimeout 链防重叠、终态停）
 - 前端部署形态：**独立 nginx Pod**（多阶段 Dockerfile node build→nginx；/api、/healthz 反代引擎 service 经 envsubst 模板+resolv.conf 注入 resolver，§9.21），ingress 单条规则指前端 Pod（chart `tags.web`）；引擎 API-only（go:embed 已退役，main.go 无前端）
-- 前端质量门：`npm run build`（tsc strict 零错）+ test-mvp4 幕2 **bundle ESM 语法门**（node --check 实吐字节+导航内容断言）+ `frontend/e2e/smoke.mjs` **jsdom 真执行冒烟**（5 断言：React 真挂载/五导航/真引擎数据/菜单真切换路由/API 可达；手法=vite 单 chunk 无 import 语句→new Function eval+window 全量桥接，§9.22）——"字符串在位"≠"脚本活着"（§9.19）
+- 前端质量门：`npm run build`（tsc strict 零错）+ `frontend/e2e/smoke.mjs` **jsdom 真执行冒烟**（5 断言：React 真挂载/五导航/真引擎数据/菜单真切换路由/API 可达；手法=vite 单 chunk 无 import 语句→new Function eval+window 全量桥接，§9.22）——"字符串在位"≠"脚本活着"（§9.19；曾配套的 bundle ESM 语法门随四门存档于 tag acceptance-suite）
 
 ### CI 步骤实现要点（留档）
 
@@ -94,16 +94,14 @@ M0 地基 → M1 第一口气（run→Job→轮询→ack→清理，引擎 helm 
 `pkg/engine/`(编排核心：run.go Run 入口+taskCtx+ack / stages.go stage 状态机+闸门刹车谓词 / jobs.go job 状态机+变量渲染编排+输出收割 / finish.go 终态收口+通知 / task.go BuildTask 快照 / trigger.go 统一触发+spawn 唯一构造序列 / ops.go 任务运维操作面 CloneTask·RetryTask·CancelTask·ReleaseGate·RecordApproval·TaskLog+sentinel 错误 / queue.go 派发器 / recover.go 启动宣判 / vars.go 变量渲染) 下挂四个子包：
 　`engine/cancel/`(取消注册表 Register/Request/Signalled/Tree/ErrCancelled)、`engine/exec/`(JobCtl 接口+Ctx 视图：k8s.go K8sJobCtl+重试+轮询、deploy.go DeployJobCtl+rollout；jobTimeout/pollInterval 在此；整树写回经 Ctx.Ack 由 engine 注入)、`engine/notify/`(IM 通知 NotifyOnFinish)、`engine/cron/`(定时调度 cron.Start(FireFunc)——触发动作回调注入，不 import engine) →
 `pkg/webhook/`(git 签名/载荷/匹配纯逻辑层) → `pkg/api/`(gin handler 层：纯 HTTP 形状翻译——taskFromPath 样板单点、28 个 handler 全包内私有、业务全在 engine/models/repo；workflow/task 运维+approve+artifact+env/notify/cron CRUD+webhook 编排) → `main.go`(根，仅装配：config→repo.Init→engine.Recover→go exec 派发器→go cron.Start(engine.TriggerWorkflow)→gin)。
-另有 `docker/`(引擎/runner/web 三镜像 Dockerfile) `deploy/chart/mini-pipeline/`(helm) `deploy/build-push.sh`/`build-runner.sh`/`build-web.sh`(本机构建) `deploy/test-mvp*.sh`(四门验收)＋`test-m3*.sh`/`test-cicd.sh`(老三门) `deploy/bootstrap-*`(自举) `frontend/`(React 前端，e2e/smoke.mjs jsdom 冒烟)。
+另有 `docker/`(engine/runner/web 三镜像 Dockerfile) `deploy/chart/mini-pipeline/`(helm) `deploy/build-push.sh`/`build-runner.sh`/`build-web.sh`(本机构建) `deploy/bootstrap-*`(自举) `frontend/`(React 前端，e2e/smoke.mjs jsdom 冒烟)；**七门验收脚本＋fix 脚本已退役**（2026-11-06，存档 tag acceptance-suite，见验收资产节）。
 
-### 验收资产（全部打集群引擎，单一引擎纪律见 §9.20）
+### 验收资产（活体七门已退役，2026-11-06 存档于 tag acceptance-suite）
 
-- `MP_BASE=https://pipeline.47.113.177.198.nip.io bash deploy/test-mvp1.sh`（35 断言：变量/重试/取消/队列/clone/超时错误策略）
-- `MP_ROLE_LIVE=1 MP_BASE=… bash deploy/test-mvp2.sh`（20 断言：env/deploy/archive，含引擎 SA patch 自身 Deployment 活体）
-- `MP_BASE=… bash deploy/test-mvp3.sh`（25 断言：cron/webhook/审批/通知/release）
-- `MP_BASE=… bash deploy/test-mvp4.sh`（20 断言：列表分页/前端 bundle ESM 语法门/日志）+ `cd frontend && MP_BASE=… npm run smoke`（jsdom 真执行 5 断言，§9.22）
-- 老三门仍有效：test-m3.sh（durable 暂停 11，含 kill Pod）/ test-m3.5.sh（启动宣判 13）/ test-cicd.sh（核心 CI/CD 33）
-- `go test ./pkg/... -count=1`：11 包单测（repo 类需 port-forward mongo）
+- **退役清单**：四门 test-mvp1~4（100 断言：变量/重试/取消/队列/clone/超时错误策略、env/deploy/archive、cron/webhook/审批/通知/release、列表分页/前端语法门/日志）+ 老三门 test-m3（durable 暂停含 kill Pod）/ test-m3.5（启动宣判）/ test-cicd（核心 CI/CD）+ fix-daemon-insecure.sh——引擎 0.7.0 封版、学习集群 11-16 到期，用户拍板清理；终版全绿基线固化在 git tag `acceptance-suite`（指向 d4c23a6）
+- 恢复任意一门：`git checkout acceptance-suite -- deploy/` 后照原命令打集群 ingress（⚠️ 单一引擎纪律 §9.20 仍适用）
+- 现存活动验收：`go test ./pkg/... -count=1`（11 包单测，repo 类需 port-forward mongo）+ `cd frontend && MP_BASE=… npm run smoke`（jsdom 真执行 5 断言，§9.22）
+- §9 案例存档中的脚本名为历史叙事，保留原状
 
 ## 3. 环境速查（全部实测可用）
 
@@ -149,12 +147,9 @@ helm upgrade mini-pipeline deploy/chart/mini-pipeline --kube-context k3s-heyuan 
 # ===== runner 镜像（低频；runner 变更时跑，tag 须同步 chart values runner.image） =====
 deploy/build-runner.sh 0.1.0
 
-# ===== 验收（四门 + jsdom 冒烟，全部打集群引擎；⚠️ 勿与本机引擎同跑——双引擎抢队列 §9.20） =====
-MP_BASE=https://pipeline.47.113.177.198.nip.io bash deploy/test-mvp1.sh                  # 35 断言
-MP_ROLE_LIVE=1 MP_BASE=https://pipeline.47.113.177.198.nip.io bash deploy/test-mvp2.sh   # 20 断言（env/deploy/archive 活体）
-MP_BASE=https://pipeline.47.113.177.198.nip.io bash deploy/test-mvp3.sh                  # 25 断言
-MP_BASE=https://pipeline.47.113.177.198.nip.io bash deploy/test-mvp4.sh && (cd frontend && MP_BASE=https://pipeline.47.113.177.198.nip.io npm run smoke)   # 20+5 断言
-bash deploy/test-cicd.sh              # 老核心 CI/CD 门 33 断言（幕1 默认跳过；MP_ACT1=1 全套）
+# ===== 验收（活体七门已退役存档 tag acceptance-suite，恢复见 §2 验收资产；现存两件） =====
+go test ./pkg/... -count=1                                                             # 11 包单测（repo 类需 port-forward mongo）
+(cd frontend && MP_BASE=https://pipeline.47.113.177.198.nip.io npm run smoke)           # jsdom 冒烟 5 断言（⚠️ 单一引擎纪律 §9.20）
 
 # ===== git 远端（GitHub，public；PR 流见桌面 mvp复现计划.md §0.3） =====
 git push   # GCM 凭证桥已配在仓库 local config，裸敲即可（首次会弹 Windows 登录窗）
@@ -211,8 +206,8 @@ go test ./pkg/repo/ -v -run TestNextID   # 需先 port-forward mongo
 
 - 集群 release：helm `mini-pipeline` rev26，引擎 **0.7.0**（结构化重构：engine 四层切面+ops.go+依赖注入+导出面收口，PR #39–#43）+ runner **0.1.1** + **web 0.1.2**（React 前端+nginx Pod，白底主题，`tags.web=true`）；mongo 8.0 / registry:2 / registry-ui 同 ns 共存
 - 引擎入口 `https://pipeline.47.113.177.198.nip.io`：ingress 单条规则指 **前端 Pod**，nginx 反代 `/api`、`/healthz` 到引擎 service（统一入口）；健康门 `curl -k …/healthz` 不变；引擎自身无前端路由（API-only）
-- **单引擎纪律**：集群引擎自带派发器，本机 `go run` 引擎与它共用 mongo 时会抢同一条队列（§9.20）——本机引擎只作调试，一切验收打集群 ingress（§2 验收资产）
-- 改动后的标准循环 = build-push（引擎）/ build-web.sh（前端）→ helm upgrade（--set 显式带全）→ 四门 + smoke 对集群跑（命令在 §5）；bootstrap 自举图纸可整链发布引擎自身（tag=bootstrap）
+- **单引擎纪律**：集群引擎自带派发器，本机 `go run` 引擎与它共用 mongo 时会抢同一条队列（§9.20）——本机引擎只作调试；活体验收已退役（§2 验收资产，存档 tag acceptance-suite），若恢复一律打集群 ingress
+- 改动后的标准循环 = build-push（引擎）/ build-web.sh（前端）→ helm upgrade（--set 显式带全）→ go test + smoke（命令在 §5）；bootstrap 自举图纸可整链发布引擎自身（tag=bootstrap）
 - 前端迭代循环：`cd frontend && npm run dev`（vite proxy 指集群 API）→ `npm run build` → `deploy/build-web.sh <tag>` → helm upgrade --set web.image… 或改 values 默认 tag
 
 ## 9. 案例存档 / 已知坑

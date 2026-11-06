@@ -60,7 +60,7 @@
 - React 18 + TypeScript(strict) + antd 5（Vite 构建），独立 nginx 镜像跑 Pod：ingress 统一入口，nginx 反代 `/api`、`/healthz` 到引擎（envsubst 模板 + 运行时 resolver）
 - **可视化多阶段编辑器**：stage 管道卡片（并行开关 + 审批闸门 any/all）→ job（freestyle/deploy 二选一，镜像自动/自定义、retry/超时/错误策略、deploy 靶标 env 下拉）→ 5 种步骤表单（shell 支持本地脚本导入 + 手写、git、docker_build、junit 门禁、archive）+ JSON 双模逃生舱；保存走 PUT（真更新，非删除重建）
 - 任务详情三级树 + 分步日志抽屉 + cancel/retry/clone/approve/release；环境/通知/定时完整 CRUD（编辑/启用开关/手动点火）
-- 质量门：tsc strict 零错构建 + 验收脚本对 ingress 实吐字节跑 bundle ESM 语法门 + jsdom 真执行冒烟（React 真挂载/真路由切换/真引擎数据）——"字符串在位"≠"脚本活着"
+- 质量门：tsc strict 零错构建 + jsdom 真执行冒烟（React 真挂载/真路由切换/真引擎数据）——"字符串在位"≠"脚本活着"（曾配套的四门 bundle 语法门已随验收脚本存档 tag acceptance-suite）
 
 ### 自举彩蛋（已活体闭环）
 
@@ -203,18 +203,19 @@ wf.json 示例（freestyle 脚本形态）：
 
 ## 验收
 
-全部验收走集群引擎（⚠️ 本机引擎与集群引擎连同一个 mongo 会抢同一条队列，验证一律收敛到单一引擎）：
+活体验收七门（四门 test-mvp1~4 共 100 断言 + 老三门 test-m3 / test-m3.5 / test-cicd）已随 0.7.0 引擎封版退役（2026-11-06，学习集群到期收尾），终版全绿基线固化在 git tag [`acceptance-suite`](https://github.com/Edward-258/code-pipeline/releases/tag/acceptance-suite)。恢复任意一门：
 
 ```bash
-MP_BASE=https://pipeline.47.113.177.198.nip.io bash deploy/test-mvp1.sh    # 35 断言：变量/重试/取消/队列/clone/超时错误策略
-MP_ROLE_LIVE=1 MP_BASE=… bash deploy/test-mvp2.sh                          # 20 断言：env/deploy/archive（含 SA patch 自身 Deployment 活体）
-MP_BASE=… bash deploy/test-mvp3.sh                                         # 25 断言：cron/webhook/审批/通知/release
-MP_BASE=… bash deploy/test-mvp4.sh                                         # 20 断言：列表分页/前端语法门/日志
-(cd frontend && MP_BASE=… npm run smoke)                                   # jsdom 真执行冒烟 5 断言
-go test ./pkg/... -count=1                                                 # 11 包单测（repo 类需 port-forward mongo）
+git checkout acceptance-suite -- deploy/
+MP_BASE=https://pipeline.47.113.177.198.nip.io bash deploy/test-mvp1.sh    # 示例：第一门 35 断言
 ```
 
-老三门仍有效：`deploy/test-m3.sh`（durable 暂停 11 断言，含 kill Pod）、`deploy/test-m3.5.sh`（启动宣判 13 断言）、`deploy/test-cicd.sh`（核心 CI/CD 33 断言）。
+现存活动验收（单测不需要集群；smoke 需引擎可达，⚠️ 勿与本机引擎同跑——会抢同一条队列）：
+
+```bash
+go test ./pkg/... -count=1                            # 11 包单测（repo 类需 port-forward mongo）
+(cd frontend && MP_BASE=… npm run smoke)              # jsdom 真执行冒烟 5 断言
+```
 
 ## 镜像分发链路
 

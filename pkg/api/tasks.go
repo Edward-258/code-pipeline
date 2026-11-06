@@ -53,7 +53,7 @@ func getTask(c *gin.Context) {
 
 // listTasks GET /api/tasks/:name?status=&creator=&from=&to=&page=&size=
 // T4.1 过滤+分页版：响应包一层 envelope {items,total,page,size}（前端分页三件套）。
-// ⚠️ 响应形状从裸数组改为 envelope——test-mvp1/3 的 jq 消费方已同步更新。
+// ⚠️ 响应形状从裸数组改为 envelope——jq 消费方须走 .items（验收脚本已存档 tag acceptance-suite）。
 func listTasks(c *gin.Context) {
 	f := repo.TaskFilter{
 		Status:  c.Query("status"),
