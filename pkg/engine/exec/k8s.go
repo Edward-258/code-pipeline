@@ -86,7 +86,13 @@ func runK8sJobOnce(c *Ctx, jt *models.JobTask) error {
 	// 幂等：残留同名 Job 先清（M4 单 job 重试 / 崩溃恢复扫清脏资源，run.go 的老规矩）
 	_ = c.Client.BatchV1().Jobs(c.NS).Delete(context.TODO(), jt.K8sJobName, k8s.DeleteOpts())
 
-	script, err := step.GenerateDriverScript(jt.Spec.EffectiveSteps()) // 规格非法在这里报，不浪费一次调度
+	// 推送目标解析（registry.go）：每次 attempt 一次——凭证不落档案，retry 拿到的是
+	// 仓库记录的当前值。规格非法（含 registry 引用不存在）在这里报，不浪费一次调度
+	steps, err := resolveRegistrySteps(jt.Spec.EffectiveSteps())
+	if err != nil {
+		return err
+	}
+	script, err := step.GenerateDriverScript(steps)
 	if err != nil {
 		return err
 	}

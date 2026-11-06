@@ -1,6 +1,6 @@
 import { Layout, Menu } from 'antd'
 import {
-  ApartmentOutlined, ClockCircleOutlined, EnvironmentOutlined,
+  ApartmentOutlined, ClockCircleOutlined, CloudUploadOutlined, EnvironmentOutlined,
   NotificationOutlined, PlayCircleOutlined,
 } from '@ant-design/icons'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
@@ -10,6 +10,7 @@ const ITEMS = [
   { key: '/workflows', icon: <ApartmentOutlined />, label: '工作流' },
   { key: '/tasks', icon: <PlayCircleOutlined />, label: '任务' },
   { key: '/envs', icon: <EnvironmentOutlined />, label: '环境' },
+  { key: '/registries', icon: <CloudUploadOutlined />, label: '镜像仓库' },
   { key: '/notifies', icon: <NotificationOutlined />, label: '通知' },
   { key: '/crons', icon: <ClockCircleOutlined />, label: '定时' },
 ]
