@@ -18,12 +18,13 @@ image:
   tag: "0.2.1"
   pullPolicy: Always                  # 开发期同 tag 反复推镜像，必须每次重拉；走内网 VPC 端点，代价可忽略
 
-# 步骤执行器宿体镜像（alpine+git+docker-cli+curl，docker/runner.Dockerfile）：git/docker_build/
-# archive 步骤的默认 Job 容器。引擎运行时创建的 K8s Job 用它，并自带 acr-credential 拉取凭证
-# （不继承引擎 Deployment）。推送：deploy/build-runner.sh（公网端点，同仓同名）。
-# 升 runner tag 只改这里，不用重编引擎。
+# 步骤执行器宿体镜像（docker/runner.Dockerfile）：git/docker_build/archive 步骤的默认 Job 容器。
+# 0.2.0 起大满贯：alpine + git/docker-cli/curl + golang 工具链 + make/jq——自动档通吃构建类
+# job，免"现场选镜像"（哲学分叉：Zadig 是一组系统镜像，我们是单 runner 全能）。
+# 引擎运行时创建的 K8s Job 用它，并自带 acr-credential 拉取凭证（不继承引擎 Deployment）。
+# 推送：deploy/build-runner.sh（公网端点，同仓同名）。升 runner tag 只改这里，不用重编引擎。
 runner:
-  image: crpi-28fqgwft325ylccc-vpc.cn-heyuan.personal.cr.aliyuncs.com/codepipeline-learning/pipeline-runner:0.1.1
+  image: crpi-28fqgwft325ylccc-vpc.cn-heyuan.personal.cr.aliyuncs.com/codepipeline-learning/pipeline-runner:0.2.0
 
 # 引擎镜像拉取凭证（templates/secret.yaml 由 acr.username/password 生成；username 为空则不渲染）
 imagePullSecrets:
