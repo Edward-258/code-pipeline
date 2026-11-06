@@ -74,6 +74,13 @@ export function addStage(wf: Workflow): Workflow {
   return { ...wf, stages: [...wf.stages, emptyStage(wf.stages.length)] }
 }
 
+// 画布分界线 ⊕：在任意位置插入 stage（at = 插入后新 stage 的下标）
+export function insertStage(wf: Workflow, at: number): Workflow {
+  const stages = [...wf.stages]
+  stages.splice(at, 0, emptyStage(stages.length))
+  return { ...wf, stages }
+}
+
 export function removeStage(wf: Workflow, si: number): Workflow {
   return { ...wf, stages: wf.stages.filter((_, i) => i !== si) }
 }
@@ -81,6 +88,14 @@ export function removeStage(wf: Workflow, si: number): Workflow {
 export function addJob(wf: Workflow, si: number): Workflow {
   const stage = wf.stages[si]
   return patchStage(wf, si, { jobs: [...stage.jobs, emptyJob(stage.jobs.length)] })
+}
+
+// 画布条框左右 ⊕：在 job 前后插入（并行时只是视觉排序，串行时是真实执行顺序）
+export function insertJob(wf: Workflow, si: number, at: number): Workflow {
+  const stage = wf.stages[si]
+  const jobs = [...stage.jobs]
+  jobs.splice(at, 0, emptyJob(jobs.length))
+  return patchStage(wf, si, { jobs })
 }
 
 export function removeJob(wf: Workflow, si: number, ji: number): Workflow {

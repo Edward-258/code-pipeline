@@ -43,7 +43,7 @@ service:
 # 前端镜像（React+nginx 多阶段构建，docker/web.Dockerfile）：推送走 deploy/build-web.sh
 # （公网端点），此处指 VPC 端点（集群内网拉取，与 image.repo 同实例同款套路）
 web:
-  image: crpi-28fqgwft325ylccc-vpc.cn-heyuan.personal.cr.aliyuncs.com/codepipeline-learning/mini-pipeline-web:0.1.4
+  image: crpi-28fqgwft325ylccc-vpc.cn-heyuan.personal.cr.aliyuncs.com/codepipeline-learning/mini-pipeline-web:0.1.5
 
 ingress:
   enabled: true
