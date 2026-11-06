@@ -24,7 +24,7 @@ pull_via_mirror() {
 pull_via_mirror node:20-alpine
 pull_via_mirror nginx:alpine
 
-# 上下文 = 仓库根（与 docker/Dockerfile、runner.Dockerfile 同形态；重货由根 .dockerignore 排除）
+# 上下文 = 仓库根（与 engine.Dockerfile、runner.Dockerfile 同形态；重货由根 .dockerignore 排除）
 docker build --provenance=false -f "$repo_root/docker/web.Dockerfile" -t "${IMAGE}" "$repo_root"
 docker push "${IMAGE}"
 echo "pushed: ${IMAGE}（kubelet 拉取走 VPC 端点；push 自动建仓 §9.9）"

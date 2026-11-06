@@ -11,7 +11,7 @@ ACR="crpi-28fqgwft325ylccc.cn-heyuan.personal.cr.aliyuncs.com" # ACR 公网端�
 NS="codepipeline-learning"
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 
-docker build --provenance=false -f "$repo_root/docker/Dockerfile" -t "${ACR}/${NS}/mini-pipeline:${Tag}" "$repo_root"
+docker build --provenance=false -f "$repo_root/docker/engine.Dockerfile" -t "${ACR}/${NS}/mini-pipeline:${Tag}" "$repo_root"
 docker push "${ACR}/${NS}/mini-pipeline:${Tag}"
 
 echo

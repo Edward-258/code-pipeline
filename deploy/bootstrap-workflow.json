@@ -36,7 +36,7 @@
                 "type": "docker_build",
                 "image": "crpi-28fqgwft325ylccc.cn-heyuan.personal.cr.aliyuncs.com/codepipeline-learning/mini-pipeline",
                 "tag": "bootstrap",
-                "dockerfile": "docker/Dockerfile",
+                "dockerfile": "docker/engine.Dockerfile",
                 "context_dir": "."
               }
             ]
