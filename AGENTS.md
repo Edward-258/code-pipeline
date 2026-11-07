@@ -29,7 +29,7 @@ MVP 已全量落地：变量/重试/取消/队列/CD deploy/archive/自举/cron/
 2. Stage 状态机 + **durable 暂停**（暂停=落库+goroutine 退出，进程重启可恢复）
 3. Job = K8s Job
 
-## 2. 已实现能力全景（截至 2026-11-07，集群镜像 0.7.3 / runner 0.2.0 / web 0.1.6）
+## 2. 已实现能力全景（截至 2026-11-07，集群镜像 0.7.4 / runner 0.2.0 / web 0.1.7）
 
 > 引擎全部能力域均已落地并活体验收：四门（35+20+25+20=100 断言）+ frontend jsdom 冒烟 5 断言在 0.7.0 上全绿，`go test ./pkg/...` 11 包单测绿。历史任务账本（MVP 四阶段，PR #1–#31）见桌面 `mvp复现计划.md`（存档）；踩坑实录全在 §9。以下按能力域描述引擎**现在能做什么**。
 
@@ -56,7 +56,7 @@ M0 地基 → M1 第一口气（run→Job→轮询→ack→清理，引擎 helm 
 
 ### CD 闭环
 
-- env 集合：name/namespace/desc，deploy job 的靶标映射（POST/GET/DELETE /api/envs，409/400/404 全路径）
+- env 集合：name/namespace/desc，deploy job 的靶标映射（POST/GET/DELETE /api/envs，409/400/404 全路径）；**env 创建随建 namespace**（2026-11-07，PR #53）：EnsureNamespace 幂等确保（Terminating 拒绝复用 + managed-by 标签 + 并发 AlreadyExists 容错），ClusterRole `pipeline-engine-ns` 仅 get/create，**建不删非对称**（§4 决断 #13）；api 层经 `EnsureNamespaceHook` 钩子装配（main.go），nil 钩子 = 纯登记降级（单测模式）
 - deploy job（CD 本体）：JobTypeDeploy + DeploySpec（env/dep名/容器名/镜像/wait_rollout 默认 true）；**不变量3：不起 K8s Job 不挂 sock，引擎 client-go StrategicMergePatch 直 patch**（只动目标容器）；rollout 轮询 = observedGeneration 追上 + updated 齐 + unavailable=0；wait_rollout=false = 自举防绞杀；DeploySpec 进变量渲染管线（image 可引上游 output）
 - chart Role 已含 apps 组 deployments/statefulsets/daemonsets patch/update（活体生效，引擎 SA 可 patch 自身 Deployment）
 - archive step：tar czf → curl 上传引擎 GridFS（bucket artifacts，键 `<wf>-<taskID>-<step>` 重跑覆盖，32MB 上限 413）→ GET 流式下载；Pod env 注入 MP_ENGINE_URL/MP_TASK_WF/MP_TASK_ID（curl -f 让上传失败翻红——busybox wget 截断教训见 §9.17）
@@ -135,6 +135,7 @@ M0 地基 → M1 第一口气（run→Job→轮询→ack→清理，引擎 helm 
 10. Mongo 密码明文写在 chart values 和 config/config.go——学习版接受（2026-11-05 起仓库已定 **public**，用户知情接受明文密码暴露风险并拍板维持公开，禁止翻转可见性，见 §9 记录 10；轮换 mongo/ACR 密码为可选卫生动作，集群 11-16 到期风险窗口有限）；ACR 密码 `acr.password` 同档处理。
 11. **registry:2 管理权：ArgoCD → 本 chart（2026-11-07 用户拍板收回，推翻 2026-11-02 的移交）**：七件套（registry deploy/svc/ingress + joxit UI deploy/svc/ingress）由 `templates/registry.yaml` 渲染，PVC 经 `registry.persistence.existingClaim` 原地认领（照 mongo 模式）+ `helm.sh/resource-policy: keep` 护体。前史：2026-11-02 曾移交 k3s-gitops `registry` app（helm→argocd 手法见 §9.8）；反向接管实录与级联事变见 §9.23。chart `tags.registry` 恢复 true 的常规语义。**2026-11-07 同日新增产品面**：引擎 registry 管理（CRUD + is_default 全量制——用户在"显式引用制 vs Zadig 全量制"两分岔中拍板全量制：裸名 docker_build 跟随默认仓库，设默认会静默改变所有裸名图纸的推送目标）。
 12. **引擎镜像分发走 ACR 个人版独立实例**（2026-11-03）：push = 公网端点（构建侧，节点或本地），pull = VPC 端点（`-vpc` 后缀，集群内网免公网流量）；凭证 = chart 内 imagePullSecret `acr-credential`（dockerconfigjson，节点 registries.yaml 不动、不重启 k3s，其它镜像拉取链路零影响）。**2026-11-04 扩展：runner 镜像同链路跟进**（`codepipeline-learning/pipeline-runner`，chart values `runner.image` → env `RUNNER_IMAGE` 注入引擎，升 tag 不用重编引擎）。⚠️ 引擎运行时创建的 Job Pod 必须**自带 imagePullSecrets acr-credential**（Deployment 挂的 secret 不会继承，engine/job.go buildJob 已内置）——dockerconfigjson 按 registry host 匹配，busybox 等 docker.io 公共镜像拉取不受影响。registry:2 角色已定 = docker_build 步骤的产物仓库（2026-11-04 M5 收官跑通），两条链路互不干扰。ACR 的坑见 §9.9。
+13. **env 建不删非对称 + namespace 随建权限最小化**（2026-11-07）：创建/更新 env 时引擎现场幂等建 namespace（`k8s.EnsureNamespace`：Terminating 拒绝复用 + `app.kubernetes.io/managed-by: mini-pipeline` 标签 + 并发 AlreadyExists 容错）——不变量"落库的 env 其 ns 必然已存在"；DELETE env 纯数据，**namespace 原地不动**——Zadig 的 DeleteNamespaceIfMatch 不抄（label 匹配删除需要 delete 权限 + 共享 ns 灭顶风险：有人登记 env→pipeline 引擎自家居所，删 env 就把引擎连窝端）。ClusterRole `pipeline-engine-ns`（clusterrole.yaml，tags.engine 门控）verbs 只有 get/create，永无 delete/list。api 层不 import K8s：`EnsureNamespaceHook` var 钩子由 main.go 装配真身，nil = 纯登记降级（单测路由零改动）。
 
 ## 5. 常用命令
 
@@ -205,7 +206,7 @@ go test ./pkg/repo/ -v -run TestNextID   # 需先 port-forward mongo
 
 ## 8. 当前部署与验证态势（快照，2026-11-07 深夜）
 
-- 集群 release：helm `mini-pipeline` rev33，引擎 **0.7.3**（五列表接口 created_at 倒序 PR #52；registry 管理化 PR #49 + 删默认回落无默认稳态 #50；master ba0af41）+ runner **0.2.0**（大满贯，PR #48）+ **web 0.1.6**（编辑器画布化 PR #51：横=stage 串行/竖=job 并行堆叠、job 条框详情进右侧抽屉、分界线 ⊕ 插 stage、collectErrors 实时红标；+删自定义镜像选择走纯自动档）；**registry:2 七件套由本 chart 渲染**（`tags.registry=true`，ArgoCD 管理权收回实录 §9.23）；mongo 8.0 同 ns 共存。**集群引擎现跑流水线自建的镜像链**：bootstrap-6 passed（含共享库 gate 修复）后 rev30 落正式 0.7.2 tag（0.7.3 起回本机 build-push.sh 链）
+- 集群 release：helm `mini-pipeline` rev34，引擎 **0.7.4**（env 随建 namespace PR #53；五列表接口 created_at 倒序 PR #52；registry 管理化 PR #49 + 删默认回落无默认稳态 #50；master ba0af41→）+ runner **0.2.0**（大满贯，PR #48）+ **web 0.1.7**（画布化 PR #51：横=stage 串行/竖=job 并行堆叠、job 条框详情进右侧抽屉、分界线 ⊕ 插 stage、collectErrors 实时红标；+删自定义镜像选择走纯自动档；+env 表单随建提示 PR #53）；**registry:2 七件套由本 chart 渲染**（`tags.registry=true`，ArgoCD 管理权收回实录 §9.23）；mongo 8.0 同 ns 共存。**集群引擎现跑流水线自建的镜像链**：bootstrap-6 passed（含共享库 gate 修复）后 rev30 落正式 0.7.2 tag（0.7.3 起回本机 build-push.sh 链）
 - **registry 能力活体验证（2026-11-07 全绿）**：引用链路（registry-ref-demo → catalog 见 registry-demo）、默认语义（is_default 置位后裸名 default-demo 实推 172.29.237.250:30500；取消后 bare-demo 回落本节点 hostIP:30500）、自举双跑（bootstrap-4 引用推 ACR digest eee6a91b…；bootstrap-6 含 #50 gate 修复全链 passed——Pod 内自行 login，节点手工 login 不再是前置）。单测：`go test ./pkg/...` 12 包全绿（+exec 解析表测/step 转义用例/api CRUD 回环含共享库快照恢复）。⚠️ 已清 bootstrap-5 失败测试的残留：acr 的 is_default 污染位 PUT 复位——**现稳态 = 无默认记录**（acr/local-ingress 均 null，裸名图纸推内置本地）
 - 引擎入口 `https://pipeline.47.113.177.198.nip.io`：ingress 单条规则指 **前端 Pod**，nginx 反代 `/api`、`/healthz` 到引擎 service（统一入口）；健康门 `curl -k …/healthz` 不变；引擎自身无前端路由（API-only）
 - **单引擎纪律**：集群引擎自带派发器，本机 `go run` 引擎与它共用 mongo 时会抢同一条队列（§9.20）——本机引擎只作调试；活体验收已退役（§2 验收资产，存档 tag acceptance-suite），若恢复一律打集群 ingress

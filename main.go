@@ -7,6 +7,7 @@ import (
 	"pipeline/pkg/config"
 	"pipeline/pkg/engine"
 	"pipeline/pkg/engine/cron"
+	"pipeline/pkg/k8s"
 	"pipeline/pkg/repo"
 )
 
@@ -24,6 +25,18 @@ func main() {
 
 	// 前端已独立成 nginx 镜像 Pod（frontend/ + chart tags.web），经 ingress 统一入口
 	// 反代 /api 到本引擎——引擎只服务 API（go:embed 时代 2026-11-06 收档）
+
+	// env 随建 namespace（Zadig 同款语义，§4 决断 #13）：api 层钩子在此装配真身
+	// （api 不 import K8s，router.go 教义不破）。每次现建 client = TailJobLog 同款
+	// 自给风格；env 创建是低频操作，可接受。
+	api.EnsureNamespaceHook = func(ns string) error {
+		cli, err := k8s.NewClient(cfg.K8SContext)
+		if err != nil {
+			return err
+		}
+		return k8s.EnsureNamespace(cli, ns)
+	}
+
 	r := api.NewRouter()
 	log.Printf("mini-pipeline listening on %s", cfg.HTTPAddr)
 	if err := r.Run(cfg.HTTPAddr); err != nil {

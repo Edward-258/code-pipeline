@@ -45,7 +45,7 @@
 
 ### CD 与部署
 
-- **环境集合**（env = 名字 → namespace）：deploy job 的靶标映射，CRUD 全路径
+- **环境集合**（env = 名字 → namespace）：deploy job 的靶标映射，CRUD 全路径；创建/更新时引擎**幂等随建 namespace**（不存在现场造 + managed-by 标签，删除 env 不删 namespace——建不删非对称）
 - **deploy job**：不起 K8s Job 不挂 docker.sock——引擎 client-go StrategicMergePatch 直改 Deployment 镜像字段（只动目标容器），然后轮询 rollout（observedGeneration 追上 + 新副本齐 + 无不可用副本）；`wait_rollout=false` 专为"自举发布自己"防绞杀
 - **镜像仓库管理**（2026-11-07，对照 Zadig registry_namespace 的极简版）：registry = 推送目标资源（地址/凭证/默认标记）CRUD；docker_build 推送目标三档解析（driver 编译前烘焙，凭证不落任务档案，retry/clone 拿当前值）：
 

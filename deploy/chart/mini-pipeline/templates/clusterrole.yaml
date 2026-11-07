@@ -1,0 +1,27 @@
+{{- if .Values.tags.engine }}
+# env 创建随建 namespace（Zadig 同款语义，极简版）：namespaces 是集群级资源，
+# 上面的 Role（namespaced）够不着，需要这条最小 ClusterRole。
+# ⚠️ verbs 刻意只有 get/create——建不删语义（§4 决断 #13）：删 ns = 灭顶键，
+# 共享 ns（如引擎自家的 pipeline）被误删即连窝端；永不给 delete/list。
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ .Values.serviceAccount.name }}-ns
+rules:
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Values.serviceAccount.name }}-ns
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ .Values.serviceAccount.name }}-ns
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Values.serviceAccount.name }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}
