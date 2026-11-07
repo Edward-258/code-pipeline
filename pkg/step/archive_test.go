@@ -10,7 +10,7 @@ import (
 // （T4.3 后上传走 curl——busybox wget --post-file 截断 POST body，见 AGENTS.md §9.17）
 func TestArchiveDriverGeneration(t *testing.T) {
 	steps := []*models.StepSpec{{Name: "pack", Type: models.StepArchive, ArtifactGlob: "dist/*.tgz", ArtifactName: "out.tgz"}}
-	script, err := GenerateDriverScript(steps)
+	script, err := GenerateDriverScript(steps, nil)
 	if err != nil {
 		t.Fatalf("generate: %v", err)
 	}
@@ -23,7 +23,7 @@ func TestArchiveDriverGeneration(t *testing.T) {
 			t.Errorf("script missing %q", want)
 		}
 	}
-	if _, err := GenerateDriverScript([]*models.StepSpec{{Name: "bad", Type: models.StepArchive}}); err == nil {
+	if _, err := GenerateDriverScript([]*models.StepSpec{{Name: "bad", Type: models.StepArchive}}, nil); err == nil {
 		t.Error("archive without artifact_glob should fail at generate time")
 	}
 }

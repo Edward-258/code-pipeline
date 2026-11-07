@@ -42,6 +42,7 @@ export interface FreestyleSpec {
   retry?: number
   timeout_minutes?: number
   error_policy?: ErrorPolicy
+  hosts?: string[] // 远程主机引用（models.Host 名；引擎投影私钥进 Pod，shell 里直接 ssh <名>）
 }
 
 export interface DeploySpec {
@@ -178,6 +179,16 @@ export interface Registry {
   username?: string
   password?: string
   is_default?: boolean // 全局唯一默认仓库：决定所有裸名 docker_build 的推送目标
+  desc?: string
+  created_at?: string
+}
+
+export interface Host {
+  name: string
+  user_name: string
+  ip: string
+  port: number
+  private_key: string
   desc?: string
   created_at?: string
 }

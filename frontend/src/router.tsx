@@ -6,6 +6,7 @@ import TaskList from './pages/tasks/TaskList'
 import TaskDetail from './pages/tasks/TaskDetail'
 import EnvList from './pages/envs/EnvList'
 import RegistryList from './pages/registries/RegistryList'
+import HostList from './pages/hosts/HostList'
 import NotifyList from './pages/notifies/NotifyList'
 import CronList from './pages/crons/CronList'
 
@@ -23,6 +24,7 @@ export const router = createBrowserRouter([
       { path: 'tasks/:wf/:id', element: <TaskDetail /> },
       { path: 'envs', element: <EnvList /> },
       { path: 'registries', element: <RegistryList /> },
+      { path: 'hosts', element: <HostList /> },
       { path: 'notifies', element: <NotifyList /> },
       { path: 'crons', element: <CronList /> },
     ],

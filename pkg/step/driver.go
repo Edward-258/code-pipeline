@@ -19,9 +19,18 @@ import (
 // 引擎每 2s 刮 Pod 日志反解 banner 维护步骤状态（engine/logs.go）——日志流就是状态信道，
 // 零新依赖零 RBAC。失败即停：对照 jobexecutor 的 hasFailed && !OnFailure（剩余步骤不跑，
 // 引擎侧置 skipped），失败退出码透传给 Pod（决断 #3"Pod 退出码 = job 结果"继续成立）。
-func GenerateDriverScript(steps []*models.StepSpec) (string, error) {
+func GenerateDriverScript(steps []*models.StepSpec, hosts []*models.Host) (string, error) {
 	var b strings.Builder
 	b.WriteString(driverPrelude)
+
+	// ssh 环境预热（spec.hosts 引用远程主机时）：铺私钥与 ~/.ssh/config，失败即掀翻
+	// 整个驱动脚本（hosts.go）——不带病进步骤。放步骤函数定义前：预热属于环境，
+	// 不属于任何一步
+	setup, err := GenerateHostSetup(hosts)
+	if err != nil {
+		return "", err
+	}
+	b.WriteString(setup)
 
 	// 先全部渲染：任一步骤规格非法（如 git 没 repo）在这里就报错，别等 Pod 起来才炸
 	for i, s := range steps {

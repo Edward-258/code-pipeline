@@ -1,7 +1,7 @@
 // API 资源层 —— 每个资源一个模块化函数组，路径与 pkg/api/router.go 一一对应
 import { api, apiText, post, put, del } from './http'
 import type {
-  Workflow, WorkflowTask, TaskListResp, Env, Registry, NotifyCfg, CronCfg,
+  Workflow, WorkflowTask, TaskListResp, Env, Registry, Host, NotifyCfg, CronCfg,
 } from '../types'
 
 // ---------- workflow ----------
@@ -63,6 +63,13 @@ export const listRegistries = () => api<Registry[]>('/api/registries')
 export const createRegistry = (r: Registry) => post<Registry>('/api/registries', r)
 export const updateRegistry = (name: string, r: Registry) => put<Registry>(`/api/registries/${name}`, r)
 export const deleteRegistry = (name: string) => del<{ deleted: string }>(`/api/registries/${name}`)
+
+// ---------- host ----------
+
+export const listHosts = () => api<Host[]>('/api/hosts')
+export const createHost = (h: Host) => post<Host>('/api/hosts', h)
+export const updateHost = (name: string, h: Host) => put<Host>(`/api/hosts/${name}`, h)
+export const deleteHost = (name: string) => del<{ deleted: string }>(`/api/hosts/${name}`)
 
 // ---------- notify ----------
 

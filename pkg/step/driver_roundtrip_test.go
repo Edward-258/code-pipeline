@@ -23,7 +23,7 @@ func TestDriverRoundtrip(t *testing.T) {
 		{Name: "boom", Type: models.StepShell, Script: "echo about-to-fail >&2; exit 7"},                                          // stderr 混流不许破坏协议
 		{Name: "never", Type: models.StepShell, Script: "echo SHOULD-NOT-RUN"},
 	}
-	script, err := GenerateDriverScript(steps)
+	script, err := GenerateDriverScript(steps, nil)
 	if err != nil {
 		t.Fatalf("generate: %v", err)
 	}

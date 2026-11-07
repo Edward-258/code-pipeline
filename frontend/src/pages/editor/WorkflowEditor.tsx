@@ -8,9 +8,9 @@ import JobDrawer from './JobDrawer'
 import StageColumn from './StageColumn'
 import { addStage, emptyWorkflow, insertStage, moveStage, removeJob, removeStage } from './tree'
 import {
-  createWorkflow, getWorkflow, listEnvs, listRegistries, updateWorkflow,
+  createWorkflow, getWorkflow, listEnvs, listHosts, listRegistries, updateWorkflow,
 } from '../../api/resources'
-import type { Env, Registry, Workflow } from '../../types'
+import type { Env, Host, Registry, Workflow } from '../../types'
 
 // 可视化画布编辑器（火山引擎持续交付同款语义）：横轴 = stage 串行时间轴（从左到右），
 // 纵轴 = stage 内 job 堆叠（并行=竖堆，串行=↓ 链）；job 压成条框、详情在右侧抽屉
@@ -95,9 +95,10 @@ export default function WorkflowEditor() {
   const [jsonText, setJsonText] = useState('')
   const [jsonError, setJsonError] = useState<string>()
   const [editing, setEditing] = useState<{ si: number; ji: number }>()
-  // 抽屉下拉数据源：env + registry 名单编辑器页拉一次（旧实现在每个 JobCard/StepForm 各拉一次）
+  // 抽屉下拉数据源：env + registry + host 名单编辑器页拉一次（旧实现在每个 JobCard/StepForm 各拉一次）
   const [envs, setEnvs] = useState<Env[]>([])
   const [registries, setRegistries] = useState<Registry[]>([])
+  const [hosts, setHosts] = useState<Host[]>([])
   const errs = useMemo(() => collectErrors(wf), [wf])
 
   useEffect(() => {
@@ -111,6 +112,7 @@ export default function WorkflowEditor() {
   useEffect(() => {
     void listEnvs().then(setEnvs).catch(() => setEnvs([]))
     void listRegistries().then(setRegistries).catch(() => setRegistries([]))
+    void listHosts().then(setHosts).catch(() => setHosts([]))
   }, [])
 
   // 进 JSON 模式时快照当前 state（编辑以"应用"按钮显式回写，防止半吊子 JSON 意外覆盖表单）
@@ -212,7 +214,7 @@ export default function WorkflowEditor() {
       {editing && wf.stages[editing.si]?.jobs[editing.ji] && (
         <JobDrawer
           wf={wf} si={editing.si} ji={editing.ji}
-          envs={envs} registries={registries}
+          envs={envs} registries={registries} hosts={hosts}
           onChange={setWf}
           onClose={() => setEditing(undefined)}
           onRemove={() => {

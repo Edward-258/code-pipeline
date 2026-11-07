@@ -15,7 +15,7 @@ func TestGenerateDriverScript(t *testing.T) {
 		{Name: "report", Type: models.StepJunitReport, ReportGlob: "*.xml"},
 		{Name: "hi", Type: models.StepShell, Script: "echo hi"},
 	}
-	script, err := GenerateDriverScript(steps)
+	script, err := GenerateDriverScript(steps, nil)
 	if err != nil {
 		t.Fatalf("generate: %v", err)
 	}
@@ -49,10 +49,10 @@ func TestGenerateDriverScript(t *testing.T) {
 
 // TestGenerateDriverScriptBadSpec —— 非法规格在生成期报错（别等 Pod 起来才炸）
 func TestGenerateDriverScriptBadSpec(t *testing.T) {
-	if _, err := GenerateDriverScript([]*models.StepSpec{{Name: "g", Type: models.StepGit}}); err == nil {
+	if _, err := GenerateDriverScript([]*models.StepSpec{{Name: "g", Type: models.StepGit}}, nil); err == nil {
 		t.Fatal("git step without repo should fail at generate time")
 	}
-	if _, err := GenerateDriverScript([]*models.StepSpec{{Name: "d", Type: models.StepDockerBuild}}); err == nil {
+	if _, err := GenerateDriverScript([]*models.StepSpec{{Name: "d", Type: models.StepDockerBuild}}, nil); err == nil {
 		t.Fatal("docker_build step without image should fail at generate time")
 	}
 }
