@@ -7,7 +7,6 @@ import (
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
 
 	"pipeline/pkg/models"
 )
@@ -38,22 +37,7 @@ func FindWorkflow(name string) (*models.Workflow, error) {
 
 func ListWorkflows() ([]*models.Workflow, error) {
 	// created_at 降序：列表页"最新的在上"（与任务列表 task_id 降序同一 UX 语义）
-	opts := options.Find().SetSort(bson.D{{Key: "created_at", Value: -1}})
-	cur, err := workflowColl.Find(context.TODO(), bson.M{}, opts)
-	if err != nil {
-		return nil, err
-	}
-	defer cur.Close(context.TODO())
-
-	var out []*models.Workflow
-	for cur.Next(context.TODO()) {
-		var w models.Workflow
-		if err := cur.Decode(&w); err != nil {
-			return nil, err
-		}
-		out = append(out, &w)
-	}
-	return out, cur.Err()
+	return listAll[models.Workflow](workflowColl, bson.M{}, bson.D{{Key: "created_at", Value: -1}})
 }
 
 // UpdateWorkflow —— 全量替换（与 ack 的 ReplaceOne 同构）；不存在交由调用方翻译 404。

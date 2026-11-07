@@ -7,7 +7,6 @@ import (
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
 
 	"pipeline/pkg/models"
 )
@@ -48,22 +47,7 @@ func FindRegistry(name string) (*models.Registry, error) {
 }
 
 func ListRegistries() ([]*models.Registry, error) {
-	opts := options.Find().SetSort(bson.D{{Key: "created_at", Value: -1}}) // 最新在上
-	cur, err := registryColl.Find(context.TODO(), bson.M{}, opts)
-	if err != nil {
-		return nil, err
-	}
-	defer cur.Close(context.TODO())
-
-	var out []*models.Registry
-	for cur.Next(context.TODO()) {
-		var r models.Registry
-		if err := cur.Decode(&r); err != nil {
-			return nil, err
-		}
-		out = append(out, &r)
-	}
-	return out, cur.Err()
+	return listAll[models.Registry](registryColl, bson.M{}, bson.D{{Key: "created_at", Value: -1}}) // 最新在上
 }
 
 // FindDefaultRegistry —— 全局唯一默认仓库（没有则为 nil，裸名 docker_build 回落内置本地）

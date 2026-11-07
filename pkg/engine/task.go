@@ -31,28 +31,11 @@ func BuildTask(wf *models.Workflow, taskID int64) *models.WorkflowTask {
 			}
 		}
 		for _, jb := range st.Jobs {
-			var specCopy models.FreestyleSpec
-			if jb.Spec != nil { // deploy job 无 freestyle spec，跳过
-				specCopy = *jb.Spec // 浅拷贝 + steps 逐个深拷贝（快照绝不共享指针）
-				if len(jb.Spec.Steps) > 0 {
-					specCopy.Steps = make([]*models.StepSpec, len(jb.Spec.Steps))
-					for i, ss := range jb.Spec.Steps {
-						cp := *ss
-						specCopy.Steps[i] = &cp
-					}
-				}
-			}
-			var ds *models.DeploySpec
-			if jb.DeploySpec != nil {
-				cp := *jb.DeploySpec // 值结构浅拷贝即深拷贝（全标量字段）
-				ds = &cp
-			}
+			specPtr, ds := copySpecs(jb)
 			// 步骤翻译：图纸 steps → 运行时 StepTask（与 EffectiveSteps 同源：旧图纸 Scripts → 隐式 "main"）
-			var specPtr *models.FreestyleSpec
 			var steps []*models.StepTask
-			if jb.Spec != nil {
-				specPtr = &specCopy
-				eff := specCopy.EffectiveSteps()
+			if specPtr != nil {
+				eff := specPtr.EffectiveSteps()
 				steps = make([]*models.StepTask, len(eff))
 				for i, ss := range eff {
 					steps[i] = &models.StepTask{Name: ss.Name, Type: ss.Type, Status: models.StatusCreated}
@@ -113,29 +96,32 @@ func snapshotWorkflow(wf *models.Workflow) *models.Workflow {
 			s.ManualExec = &me
 		}
 		for _, jb := range st.Jobs {
-			var specCopy models.FreestyleSpec
-			if jb.Spec != nil { // deploy job 无 freestyle spec，跳过
-				specCopy = *jb.Spec
-				if len(jb.Spec.Steps) > 0 {
-					specCopy.Steps = make([]*models.StepSpec, len(jb.Spec.Steps))
-					for i, ss := range jb.Spec.Steps {
-						cp := *ss
-						specCopy.Steps[i] = &cp
-					}
-				}
-			}
-			var ds *models.DeploySpec
-			if jb.DeploySpec != nil {
-				cp := *jb.DeploySpec
-				ds = &cp
-			}
-			var specPtr *models.FreestyleSpec
-			if jb.Spec != nil {
-				specPtr = &specCopy
-			}
+			specPtr, ds := copySpecs(jb)
 			s.Jobs = append(s.Jobs, &models.Job{Name: jb.Name, JobType: jb.JobType, Spec: specPtr, DeploySpec: ds})
 		}
 		out.Stages = append(out.Stages, s)
 	}
 	return out
+}
+
+// copySpecs —— job 引用字段的快照深拷贝单点（"快照绝不共享指针"纪律的实体）：
+// FreestyleSpec 浅拷贝 + steps 逐个深拷贝；DeploySpec 全标量字段浅拷贝即深拷贝。
+// BuildTask（运行树）与 snapshotWorkflow（图纸快照）共用这一个实现，快照语义不两处维护。
+func copySpecs(jb *models.Job) (spec *models.FreestyleSpec, ds *models.DeploySpec) {
+	if jb.Spec != nil { // deploy job 无 freestyle spec，跳过
+		cp := *jb.Spec
+		if len(jb.Spec.Steps) > 0 {
+			cp.Steps = make([]*models.StepSpec, len(jb.Spec.Steps))
+			for i, ss := range jb.Spec.Steps {
+				s := *ss
+				cp.Steps[i] = &s
+			}
+		}
+		spec = &cp
+	}
+	if jb.DeploySpec != nil {
+		c := *jb.DeploySpec
+		ds = &c
+	}
+	return spec, ds
 }

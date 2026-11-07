@@ -33,6 +33,10 @@ func StatusFinished(s Status) bool {
 	return false
 }
 
+// FinishedStatuses —— 终态集的枚举形态（repo 条件写回的 $in 参数，与 StatusFinished 同源；
+// 两处必须同步改——判定用函数、写回用集合，这里只放一个真相源给集合侧）
+var FinishedStatuses = []Status{StatusPassed, StatusFailed, StatusCancelled, StatusSkipped}
+
 // statusWeight —— 最差者胜的权重（对照 Zadig consts.go:106-125 的偏序，学习版 7 态映射）
 // 值越大越"差"：聚合取权重最大者，一个 failed 就足以把 stage/task 拖成 failed。
 // running 排在 passed 之前：还有 job 在跑就不许宣布成功；
