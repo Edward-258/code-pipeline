@@ -30,10 +30,13 @@ func artifactTestEnv(t *testing.T) *httptest.Server {
 
 func artifactTask(t *testing.T, wf string) *models.WorkflowTask {
 	t.Helper()
+	// _id 必须由 (wf, taskID) 派生——引擎 BuildTask 的自然键纪律。旧版这里 ID/TaskID
+	// 各取一次 UnixNano（数字对不上），FindTask 改走 _id 主键后当场现形（读化石教训的微缩版）
+	taskID := time.Now().UnixNano() % 100000
 	tk := &models.WorkflowTask{
-		ID:           fmt.Sprintf("%s-%d", wf, time.Now().UnixNano()%100000),
+		ID:           fmt.Sprintf("%s-%d", wf, taskID),
 		WorkflowName: wf,
-		TaskID:       time.Now().UnixNano() % 100000,
+		TaskID:       taskID,
 		Status:       models.StatusPassed,
 		Stages:       []*models.StageTask{{Name: "s", Status: models.StatusPassed}},
 	}

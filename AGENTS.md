@@ -29,7 +29,7 @@ MVP 已全量落地：变量/重试/取消/队列/CD deploy/archive/自举/cron/
 2. Stage 状态机 + **durable 暂停**（暂停=落库+goroutine 退出，进程重启可恢复）
 3. Job = K8s Job
 
-## 2. 已实现能力全景（截至 2026-11-07，集群镜像 0.7.4 / runner 0.2.0 / web 0.1.7）
+## 2. 已实现能力全景（截至 2026-11-08，集群镜像 0.7.6 / runner 0.2.0 / web 0.1.7）
 
 > 引擎全部能力域均已落地并活体验收：四门（35+20+25+20=100 断言）+ frontend jsdom 冒烟 5 断言在 0.7.0 上全绿，`go test ./pkg/...` 11 包单测绿。历史任务账本（MVP 四阶段，PR #1–#31）见桌面 `mvp复现计划.md`（存档）；踩坑实录全在 §9。以下按能力域描述引擎**现在能做什么**。
 
@@ -206,7 +206,7 @@ go test ./pkg/repo/ -v -run TestNextID   # 需先 port-forward mongo
 
 ## 8. 当前部署与验证态势（快照，2026-11-07 深夜）
 
-- 集群 release：helm `mini-pipeline` rev34，引擎 **0.7.4**（env 随建 namespace PR #53；五列表接口 created_at 倒序 PR #52；registry 管理化 PR #49 + 删默认回落无默认稳态 #50；master ba0af41→）+ runner **0.2.0**（大满贯，PR #48）+ **web 0.1.7**（画布化 PR #51：横=stage 串行/竖=job 并行堆叠、job 条框详情进右侧抽屉、分界线 ⊕ 插 stage、collectErrors 实时红标；+删自定义镜像选择走纯自动档；+env 表单随建提示 PR #53）；**registry:2 七件套由本 chart 渲染**（`tags.registry=true`，ArgoCD 管理权收回实录 §9.23）；mongo 8.0 同 ns 共存。**集群引擎现跑流水线自建的镜像链**：bootstrap-6 passed（含共享库 gate 修复）后 rev30 落正式 0.7.2 tag（0.7.3 起回本机 build-push.sh 链）
+- 集群 release：helm `mini-pipeline` rev36，引擎 **0.7.6**（引擎加固 PR #54：release/approve 闸门树加载挪进 gateMu 临界区 + cancel/retry 条件写回守卫 `UpdateTaskIfStatus`（ErrTaskMoved→409）+ FindTask 走 _id 主键 + workflow_task 复合索引 + repo 泛型 listAll 收口 + 校验器拒 job 名 global/名字单引号 + 闸门审批域独立 gate.go（文件即切面，ops 只剩生命周期操作）；env 随建 namespace PR #53；五列表接口 created_at 倒序 PR #52；registry 管理化 PR #49/#50；master 772ff38→）+ runner **0.2.0**（大满贯，PR #48）+ **web 0.1.7**（画布化 PR #51：横=stage 串行/竖=job 并行堆叠、job 条框详情进右侧抽屉、分界线 ⊕ 插 stage、collectErrors 实时红标；+删自定义镜像选择走纯自动档；+env 表单随建提示 PR #53）；**registry:2 七件套由本 chart 渲染**（`tags.registry=true`，ArgoCD 管理权收回实录 §9.23）；mongo 8.0 同 ns 共存。**集群引擎现跑流水线自建的镜像链**：bootstrap-6 passed（含共享库 gate 修复）后 rev30 落正式 0.7.2 tag（0.7.3 起回本机 build-push.sh 链）
 - **registry 能力活体验证（2026-11-07 全绿）**：引用链路（registry-ref-demo → catalog 见 registry-demo）、默认语义（is_default 置位后裸名 default-demo 实推 172.29.237.250:30500；取消后 bare-demo 回落本节点 hostIP:30500）、自举双跑（bootstrap-4 引用推 ACR digest eee6a91b…；bootstrap-6 含 #50 gate 修复全链 passed——Pod 内自行 login，节点手工 login 不再是前置）。单测：`go test ./pkg/...` 12 包全绿（+exec 解析表测/step 转义用例/api CRUD 回环含共享库快照恢复）。⚠️ 已清 bootstrap-5 失败测试的残留：acr 的 is_default 污染位 PUT 复位——**现稳态 = 无默认记录**（acr/local-ingress 均 null，裸名图纸推内置本地）
 - 引擎入口 `https://pipeline.47.113.177.198.nip.io`：ingress 单条规则指 **前端 Pod**，nginx 反代 `/api`、`/healthz` 到引擎 service（统一入口）；健康门 `curl -k …/healthz` 不变；引擎自身无前端路由（API-only）
 - **单引擎纪律**：集群引擎自带派发器，本机 `go run` 引擎与它共用 mongo 时会抢同一条队列（§9.20）——本机引擎只作调试；活体验收已退役（§2 验收资产，存档 tag acceptance-suite），若恢复一律打集群 ingress

@@ -15,7 +15,7 @@ connections:
 
 image:
   repo: crpi-28fqgwft325ylccc-vpc.cn-heyuan.personal.cr.aliyuncs.com/codepipeline-learning/mini-pipeline  # ACR 个人版(河源)独立实例：VPC 端点走内网免公网流量（host 必须与 acr.registry 一致）
-  tag: "0.7.4"  # 跟随当前引擎版本（部署仍以 --set 显式覆盖为准——helm v3 不复用上次 --set）
+  tag: "0.7.6"  # 跟随当前引擎版本（部署仍以 --set 显式覆盖为准——helm v3 不复用上次 --set）
   pullPolicy: Always                  # 开发期同 tag 反复推镜像，必须每次重拉；走内网 VPC 端点，代价可忽略
 
 # 步骤执行器宿体镜像（docker/runner.Dockerfile）：git/docker_build/archive 步骤的默认 Job 容器。

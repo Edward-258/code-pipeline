@@ -8,7 +8,6 @@ import (
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
 
 	"pipeline/pkg/models"
 )
@@ -36,22 +35,7 @@ func FindCron(name string) (*models.Cron, error) {
 }
 
 func ListCrons() ([]*models.Cron, error) {
-	opts := options.Find().SetSort(bson.D{{Key: "created_at", Value: -1}}) // 最新在上
-	cur, err := cronColl.Find(context.TODO(), bson.M{}, opts)
-	if err != nil {
-		return nil, err
-	}
-	defer cur.Close(context.TODO())
-
-	var out []*models.Cron
-	for cur.Next(context.TODO()) {
-		var c models.Cron
-		if err := cur.Decode(&c); err != nil {
-			return nil, err
-		}
-		out = append(out, &c)
-	}
-	return out, cur.Err()
+	return listAll[models.Cron](cronColl, bson.M{}, bson.D{{Key: "created_at", Value: -1}}) // 最新在上
 }
 
 // UpdateCron —— 全量替换（enabled/crontab/workflow 都可改），updatedAt 刷新

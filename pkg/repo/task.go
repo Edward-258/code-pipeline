@@ -3,6 +3,7 @@ package repo
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
@@ -17,13 +18,14 @@ func CreateTask(t *models.WorkflowTask) error {
 	return err
 }
 
-// FindTask —— 按 (workflow_name, task_id) 取整棵任务树
+// FindTask —— 按 (workflow_name, task_id) 取整棵任务树。
+// 查询走 _id 自然键（"<wf>-<taskID>"，engine/task.go BuildTask 定死）——主键索引直达；
+// 复合字段查询没有索引 = 全表扫，而这是任务 API 的最高频读（详情 2s 轮询 + 各运维端点）。
 // "整棵读"是这套数据的唯一读法（聚合根访问模式），从不跨实体 JOIN
 func FindTask(workflowName string, taskID int64) (*models.WorkflowTask, error) {
 	var t models.WorkflowTask
 	err := taskColl.FindOne(context.TODO(), bson.M{
-		"workflow_name": workflowName,
-		"task_id":       taskID,
+		"_id": fmt.Sprintf("%s-%d", workflowName, taskID),
 	}).Decode(&t)
 	if errors.Is(err, mongo.ErrNoDocuments) {
 		return nil, ErrNotFound
@@ -45,51 +47,39 @@ func UpdateTask(t *models.WorkflowTask) error {
 	return err
 }
 
+// UpdateTaskIfStatus —— 带状态守卫的整树写回（CAS 语义）：文档当前状态 ∈ allowed 才替换。
+// "api 先读、引擎后写"的 check-then-write 竞态收口单点（cancel 数据路径 / retry 防双击
+// ——读改写窗口里文档被派发器/上一次点击翻走时，MatchedCount==0，调用方放弃本次写回，
+// API 侧翻译成 409 让调用方重读再试）。有看护人的 running 场景不走这里（信号路径）。
+func UpdateTaskIfStatus(t *models.WorkflowTask, allowed ...models.Status) (bool, error) {
+	if t.ID == "" {
+		return false, errors.New("update task: empty _id")
+	}
+	res, err := taskColl.ReplaceOne(context.TODO(),
+		bson.M{"_id": t.ID, "status": bson.M{"$in": allowed}}, t)
+	if err != nil {
+		return false, err
+	}
+	return res.MatchedCount == 1, nil
+}
+
 // InCompletedTasks —— M3.5 启动宣判的扫描源（对照 Zadig workflow_task_v4.go:259 同名函数）。
 // 只捞 created/queued/running：这三种状态的看护人 goroutine 已随上一世进程死掉
 // （queued 也没等到派发——T1.6 拍板：重启即排空，用户重跑）。
 // ⚠️ 故意不含 pause——暂停是无需看护人的稳态（M3 灵魂），跨重启存活；
 // Zadig 原版连 waiting-approve 一起取消，这里是有意的分叉点。
 func InCompletedTasks() ([]*models.WorkflowTask, error) {
-	opts := options.Find().SetSort(bson.D{{Key: "created_at", Value: 1}})
-	cur, err := taskColl.Find(context.TODO(), bson.M{
+	return listAll[models.WorkflowTask](taskColl, bson.M{
 		"status": bson.M{"$in": []models.Status{models.StatusCreated, models.StatusQueued, models.StatusRunning}},
-	}, opts)
-	if err != nil {
-		return nil, err
-	}
-	defer cur.Close(context.TODO())
-
-	var out []*models.WorkflowTask
-	for cur.Next(context.TODO()) {
-		var t models.WorkflowTask
-		if err := cur.Decode(&t); err != nil {
-			return nil, err
-		}
-		out = append(out, &t)
-	}
-	return out, cur.Err()
+	}, bson.D{{Key: "created_at", Value: 1}})
 }
 
-// ListQueued —— T1.6 派发器的扫描源：status=queued，task_id 升序（先来先服务）。
+// ListQueued —— T1.6 派发器的扫描源：status=queued，task_id 升序（同 wf 内先来先服务；
+// task_id 是 per-wf 计数器，跨 wf 的相对顺序不承诺全局 FIFO）。
 // 必须返回整棵树：抢占了就要直接喂给 engine.Run，投影省的那点流量换不来半棵树跑错。
 func ListQueued() ([]*models.WorkflowTask, error) {
-	opts := options.Find().SetSort(bson.D{{Key: "task_id", Value: 1}})
-	cur, err := taskColl.Find(context.TODO(), bson.M{"status": models.StatusQueued}, opts)
-	if err != nil {
-		return nil, err
-	}
-	defer cur.Close(context.TODO())
-
-	var out []*models.WorkflowTask
-	for cur.Next(context.TODO()) {
-		var t models.WorkflowTask
-		if err := cur.Decode(&t); err != nil {
-			return nil, err
-		}
-		out = append(out, &t)
-	}
-	return out, cur.Err()
+	return listAll[models.WorkflowTask](taskColl,
+		bson.M{"status": models.StatusQueued}, bson.D{{Key: "task_id", Value: 1}})
 }
 
 // RunningStats —— 派发器的并发视图：全局 running 总数 + 按 workflow 分组（同 wf 串行的依据）。

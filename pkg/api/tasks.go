@@ -20,11 +20,13 @@ import (
 // ---------- 共用小件 ----------
 
 // taskFromPath —— "ParseInt(:id) → FindTask → 404/500" 样板的单点：
-// 返回 nil 时响应已写出（400/404/500），调用方直接 return
+// 返回 nil 时响应已写出（400/404/500），调用方直接 return。
+// 只服务只读端点（getTask/log/clone——clone 不写源档案）；cancel/release/approve/retry
+// 这些**写路径**不再预读整树：树加载挪进引擎侧（gateMu 临界区内 / 条件写回守卫），
+// 这里只解析 id 形状（taskIDParam），读改写竞态收口在 engine。
 func taskFromPath(c *gin.Context) *models.WorkflowTask {
-	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
-	if err != nil {
-		respond(c, http.StatusBadRequest, "task id must be a number")
+	id, ok := taskIDParam(c)
+	if !ok {
 		return nil
 	}
 	t, err := repo.FindTask(c.Param("name"), id)
@@ -37,6 +39,16 @@ func taskFromPath(c *gin.Context) *models.WorkflowTask {
 		return nil
 	}
 	return t
+}
+
+// taskIDParam —— :id 的形状解析（400 单点）
+func taskIDParam(c *gin.Context) (int64, bool) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		respond(c, http.StatusBadRequest, "task id must be a number")
+		return 0, false
+	}
+	return id, true
 }
 
 // respond —— 统一错误响应体 {"error": …}
@@ -75,19 +87,23 @@ func listTasks(c *gin.Context) {
 
 // cancelTask DELETE /api/tasks/:name/:id
 // 有看护 goroutine（注册表有号）：close 信号，看护人在一拍轮询内收口 → 202 Accepted；
-// 无看护人（pause 稳态 / queued / 孤儿幸存）：引擎侧纯数据收口 → 200；
-// 已终态：409（终态不可取消，幂等语义交还给调用方）。两条路径的分派在 engine.CancelTask。
+// 无看护人（created/queued/pause 稳态）：引擎侧纯数据收口（条件写回）→ 200；
+// 已终态 / 文档状态在读到写回窗口被翻走：409（终态不可取消 / ErrTaskMoved 重读再试）。
+// 两条路径的分派在 engine.CancelTask（树加载在引擎侧）。
 func cancelTask(c *gin.Context) {
-	t := taskFromPath(c)
-	if t == nil {
+	id, ok := taskIDParam(c)
+	if !ok {
 		return
 	}
-	accepted, err := engine.CancelTask(t)
-	if errors.Is(err, engine.ErrTaskFinal) {
+	accepted, t, err := engine.CancelTask(c.Param("name"), id)
+	switch {
+	case errors.Is(err, repo.ErrNotFound):
+		respond(c, http.StatusNotFound, "task not found")
+		return
+	case errors.Is(err, engine.ErrTaskFinal), errors.Is(err, engine.ErrTaskMoved):
 		respond(c, http.StatusConflict, err.Error())
 		return
-	}
-	if err != nil {
+	case err != nil:
 		respond(c, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -101,21 +117,26 @@ func cancelTask(c *gin.Context) {
 // ---------- M3：durable 暂停的放行端点（灵魂端点） ----------
 
 // releaseStage POST /api/tasks/:name/:id/stages/:stage/release
-// 放行暂停中的 stage：引擎侧翻闸门位 → 落库 → 正常入队续跑（gateMu 互斥防双击）。
+// 放行暂停中的 stage：引擎侧（gateMu 临界区内）加载树 → 翻闸门位 → 落库 → 正常入队续跑。
+// 404/409 的判据由引擎 sentinel 给出；ErrTaskMoved 现阶段只在 retry/cancel 出现，
+// 统一映射防未来 passGate 换条件写回时漏接。
 func releaseStage(c *gin.Context) {
-	t := taskFromPath(c)
-	if t == nil {
+	id, ok := taskIDParam(c)
+	if !ok {
 		return
 	}
-	if _, err := engine.ReleaseGate(t, c.Param("stage")); err != nil {
-		if errors.Is(err, engine.ErrStageNotFound) {
-			respond(c, http.StatusNotFound, "stage not found")
-			return
-		}
-		if errors.Is(err, engine.ErrNotWaiting) {
-			respond(c, http.StatusConflict, err.Error())
-			return
-		}
+	t, err := engine.ReleaseGate(c.Param("name"), id, c.Param("stage"))
+	switch {
+	case errors.Is(err, repo.ErrNotFound):
+		respond(c, http.StatusNotFound, "task not found")
+		return
+	case errors.Is(err, engine.ErrStageNotFound):
+		respond(c, http.StatusNotFound, "stage not found")
+		return
+	case errors.Is(err, engine.ErrNotWaiting), errors.Is(err, engine.ErrTaskMoved):
+		respond(c, http.StatusConflict, err.Error())
+		return
+	case err != nil:
 		respond(c, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -144,22 +165,26 @@ func cloneTask(c *gin.Context) {
 }
 
 // retryTask POST /api/tasks/:name/:id/retry —— 从失败处续跑：passed 子树不动，
-// failed/cancelled/skipped 刹车残留复活（树内手术在 engine.RetryTask）。
+// failed/cancelled/skipped 刹车残留复活（树内手术在 engine.RetryTask）；
+// 非终态 / 双击竞态（条件写回未命中）：409。
 func retryTask(c *gin.Context) {
-	t := taskFromPath(c)
-	if t == nil {
+	id, ok := taskIDParam(c)
+	if !ok {
 		return
 	}
-	nt, err := engine.RetryTask(t)
-	if errors.Is(err, engine.ErrTaskNotFinal) {
+	t, err := engine.RetryTask(c.Param("name"), id)
+	switch {
+	case errors.Is(err, repo.ErrNotFound):
+		respond(c, http.StatusNotFound, "task not found")
+		return
+	case errors.Is(err, engine.ErrTaskNotFinal), errors.Is(err, engine.ErrTaskMoved):
 		respond(c, http.StatusConflict, err.Error())
 		return
-	}
-	if err != nil {
+	case err != nil:
 		respond(c, http.StatusInternalServerError, err.Error())
 		return
 	}
-	c.JSON(http.StatusOK, nt)
+	c.JSON(http.StatusOK, t)
 }
 
 // ---------- 步骤化日志（CI/CD）：任务在跑透传 Pod 日志尾部，已结束回档案分步日志 ----------
@@ -192,8 +217,8 @@ type approveBody struct {
 
 // approveTask POST /api/tasks/:name/:id/approve
 func approveTask(c *gin.Context) {
-	t := taskFromPath(c)
-	if t == nil {
+	id, ok := taskIDParam(c)
+	if !ok {
 		return
 	}
 	var body approveBody
@@ -206,12 +231,15 @@ func approveTask(c *gin.Context) {
 		return
 	}
 
-	res, err := engine.RecordApproval(t, body.Stage, body.Approver, body.Comment)
-	if errors.Is(err, engine.ErrNotWaiting) {
+	res, err := engine.RecordApproval(c.Param("name"), id, body.Stage, body.Approver, body.Comment)
+	switch {
+	case errors.Is(err, repo.ErrNotFound):
+		respond(c, http.StatusNotFound, "task not found")
+		return
+	case errors.Is(err, engine.ErrNotWaiting), errors.Is(err, engine.ErrTaskMoved):
 		respond(c, http.StatusConflict, err.Error())
 		return
-	}
-	if err != nil {
+	case err != nil:
 		respond(c, http.StatusInternalServerError, err.Error())
 		return
 	}

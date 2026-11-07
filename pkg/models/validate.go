@@ -1,9 +1,19 @@
 package models
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // 图纸校验（对照 Zadig workflow.Validate 的极简版）。领域规则归领域模型：
 // api 层只做形状绑定（ShouldBindJSON），这里的错一律 400。
+
+// nameProtocolSafe —— 名字里的单引号会打断 driver 脚本的 mp_run '<name>' 单引号协议
+// （step 名直插 POSIX 脚本；stage/job 名统一约束防呆）。空格是允许的——END banner
+// 的解析器按"从右往左剥"专门为含空格的名字设计（step/logs.go）。
+func nameProtocolSafe(s string) bool {
+	return !strings.Contains(s, "'")
+}
 
 // ValidateWorkflow —— 图纸写入（POST/PUT）前的完整性校验：
 // 名字/stage/job 结构齐全、job 类型白名单（空 type 视作 freestyle 兼容历史图纸）、
@@ -19,12 +29,23 @@ func ValidateWorkflow(wf *Workflow) error {
 		if st.Name == "" {
 			return fmt.Errorf("stage[%d]: name is required", i)
 		}
+		if !nameProtocolSafe(st.Name) {
+			return fmt.Errorf("stage[%d]: name must not contain single quotes", i)
+		}
 		if len(st.Jobs) == 0 {
 			return fmt.Errorf("stage[%d]: at least one job is required", i)
 		}
 		for j, jb := range st.Jobs {
 			if jb.Name == "" {
 				return fmt.Errorf("stage[%d].job[%d]: name is required", i, j)
+			}
+			if !nameProtocolSafe(jb.Name) {
+				return fmt.Errorf("stage[%d].job[%d]: name must not contain single quotes", i, j)
+			}
+			if jb.Name == "global" {
+				// 变量命名空间保留字：收割键是 "<job>.<output>"（job 名不含点是前提），
+				// job 叫 global 会把自己的输出顶进 {{.global.*}} 污染全局变量
+				return fmt.Errorf("stage[%d].job[%d]: job name \"global\" is reserved (variable namespace)", i, j)
 			}
 			switch jb.JobType {
 			case JobTypeFreestyle: // 兼容历史图纸：空 type 视作 freestyle
@@ -61,6 +82,9 @@ func ValidateWorkflow(wf *Workflow) error {
 			for _, ss := range jb.Spec.Steps {
 				if ss.Name == "" {
 					return fmt.Errorf("stage[%d].job[%d]: step name is required", i, j)
+				}
+				if !nameProtocolSafe(ss.Name) {
+					return fmt.Errorf("stage[%d].job[%d]: step %q name must not contain single quotes", i, j, ss.Name)
 				}
 				switch ss.Type {
 				case StepShell, StepGit, StepDockerBuild, StepJunitReport, StepArchive:

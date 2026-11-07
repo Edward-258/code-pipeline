@@ -7,7 +7,6 @@ import (
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
 
 	"pipeline/pkg/models"
 )
@@ -38,22 +37,7 @@ func FindEnv(name string) (*models.Env, error) {
 }
 
 func ListEnvs() ([]*models.Env, error) {
-	opts := options.Find().SetSort(bson.D{{Key: "created_at", Value: -1}}) // 最新在上
-	cur, err := envColl.Find(context.TODO(), bson.M{}, opts)
-	if err != nil {
-		return nil, err
-	}
-	defer cur.Close(context.TODO())
-
-	var out []*models.Env
-	for cur.Next(context.TODO()) {
-		var e models.Env
-		if err := cur.Decode(&e); err != nil {
-			return nil, err
-		}
-		out = append(out, &e)
-	}
-	return out, cur.Err()
+	return listAll[models.Env](envColl, bson.M{}, bson.D{{Key: "created_at", Value: -1}}) // 最新在上
 }
 
 // UpdateEnv —— 全量替换（name 是主键不可改，调用方已按路径名归一）；CreatedAt 同 workflow 纪律由旧档带过来

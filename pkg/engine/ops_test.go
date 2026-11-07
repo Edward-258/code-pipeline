@@ -40,8 +40,8 @@ func TestResetForRetryRun(t *testing.T) {
 	if tk.Stages[2].Status != models.StatusCreated || tk.Stages[2].Jobs[0].Status != models.StatusCreated {
 		t.Errorf("skipped (brake residue) must revive: %+v", tk.Stages[2])
 	}
-	if tk.Status != models.StatusCreated || tk.Error != "" || tk.EndTime != 0 {
-		t.Errorf("task shell not reset: %s %q %d", tk.Status, tk.Error, tk.EndTime)
+	if tk.Status != models.StatusQueued || tk.Error != "" || tk.EndTime != 0 {
+		t.Errorf("task shell not reset to queued (retry=单次条件写回): %s %q %d", tk.Status, tk.Error, tk.EndTime)
 	}
 }
 
