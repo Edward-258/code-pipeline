@@ -8,6 +8,7 @@ import (
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 
 	"pipeline/pkg/models"
 )
@@ -35,7 +36,8 @@ func FindCron(name string) (*models.Cron, error) {
 }
 
 func ListCrons() ([]*models.Cron, error) {
-	cur, err := cronColl.Find(context.TODO(), bson.M{})
+	opts := options.Find().SetSort(bson.D{{Key: "created_at", Value: -1}}) // 最新在上
+	cur, err := cronColl.Find(context.TODO(), bson.M{}, opts)
 	if err != nil {
 		return nil, err
 	}

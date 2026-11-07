@@ -38,7 +38,7 @@ func FindEnv(name string) (*models.Env, error) {
 }
 
 func ListEnvs() ([]*models.Env, error) {
-	opts := options.Find().SetSort(bson.D{{Key: "_id", Value: 1}})
+	opts := options.Find().SetSort(bson.D{{Key: "created_at", Value: -1}}) // 最新在上
 	cur, err := envColl.Find(context.TODO(), bson.M{}, opts)
 	if err != nil {
 		return nil, err
