@@ -6,7 +6,7 @@ import StepForm from './StepForm'
 import {
   addStep, moveStep, patchDeploy, patchFreestyle, patchJob, patchStep, removeStep,
 } from './tree'
-import type { Env, ErrorPolicy, Job, JobType, Registry, StepType, Workflow } from '../../types'
+import type { Env, ErrorPolicy, Host, Job, JobType, Registry, StepType, Workflow } from '../../types'
 
 const { Text } = Typography
 
@@ -24,6 +24,7 @@ interface Props {
   ji: number
   envs: Env[] // 编辑器页拉一次下传（旧实现在每个 deploy JobCard 各拉）
   registries: Registry[]
+  hosts: Host[]
   onChange: (next: Workflow) => void
   onClose: () => void
   onRemove: () => void
@@ -31,7 +32,7 @@ interface Props {
 
 // job 详情抽屉（火山「编辑任务」同位）——画布条框的完整编辑面。
 // live-patch：改动即时进 wf，关抽屉即保留（无确定/取消缓冲，误改走 JSON 模式兜底）。
-export default function JobDrawer({ wf, si, ji, envs, registries, onChange, onClose, onRemove }: Props) {
+export default function JobDrawer({ wf, si, ji, envs, registries, hosts, onChange, onClose, onRemove }: Props) {
   const job: Job = wf.stages[si].jobs[ji]
   const spec = job.spec ?? { steps: [] }
   const steps = spec.steps ?? []
@@ -123,6 +124,21 @@ export default function JobDrawer({ wf, si, ji, envs, registries, onChange, onCl
                   ]} />
               </Col>
             </Row>
+
+            {/* 远程主机（job 级引用，照 Zadig build.SSHs 形态）：引擎投影私钥进 Pod，
+                步骤脚本里直接 `ssh <名>`；shell 步骤引用 $MP_H_<名大写>_IP/_PORT/_USER */}
+            <div>
+              <Text type="secondary" style={{ display: 'block', marginBottom: 6, fontSize: 12 }}>
+                远程主机（shell 里 ssh &lt;名&gt; 直连）
+              </Text>
+              <Select
+                mode="multiple" allowClear style={{ width: '100%' }} placeholder="不选 = 纯本地执行"
+                value={spec.hosts ?? []}
+                options={hosts.map((h) => ({ value: h.name, label: `${h.name}（${h.user_name}@${h.ip}）` }))}
+                onChange={(v) => onChange(patchFreestyle(wf, si, ji, { hosts: v.length ? v : undefined }))}
+                notFoundContent="先到「主机」页录主机"
+              />
+            </div>
 
             <div>
               <Text type="secondary" style={{ display: 'block', marginBottom: 6, fontSize: 12 }}>

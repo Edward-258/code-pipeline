@@ -92,7 +92,12 @@ func runK8sJobOnce(c *Ctx, jt *models.JobTask) error {
 	if err != nil {
 		return err
 	}
-	script, err := step.GenerateDriverScript(steps)
+	// 远程主机解析（hosts.go）：同一时序——私钥只在 host 集合与驱动脚本里，档案只存名字
+	hosts, err := resolveHosts(jt.Spec.Hosts)
+	if err != nil {
+		return err
+	}
+	script, err := step.GenerateDriverScript(steps, hosts)
 	if err != nil {
 		return err
 	}

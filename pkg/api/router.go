@@ -44,6 +44,11 @@ func NewRouter() *gin.Engine {
 		api.GET("/registries", listRegistries)
 		api.PUT("/registries/:name", updateRegistry)
 		api.DELETE("/registries/:name", deleteRegistry)
+		// 2026-11-08：远程主机管理（freestyle job 的 ssh 靶标；私钥投影进 Pod 不落档案）
+		api.POST("/hosts", createHost)
+		api.GET("/hosts", listHosts)
+		api.PUT("/hosts/:name", updateHost)
+		api.DELETE("/hosts/:name", deleteHost)
 
 		// M1：run / task 查询
 		api.POST("/workflows/:name/run", runWorkflow)

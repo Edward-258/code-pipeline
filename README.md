@@ -41,7 +41,7 @@
 - **五种步骤**：`shell` / `git`（--depth 1 + token 注入）/ `docker_build`（遥控节点 daemon 构建，推送目标三档见下"CD 与部署"）/ `junit_report`（通过率门禁，默认 100% 翻红）/ `archive`（tar.gz → GridFS 上传下载，32MB 上限）
 - **bash driver + banner 协议**：引擎把 steps 编译成 POSIX sh 驱动脚本，Pod stdout 就是步骤状态信道（`===MP=== STEP-START/END` + `OUTPUT k=v`）——与 Zadig jobexecutor+ConfigMap 信息流等价但零新依赖零 RBAC；首行 `exec 2>&1` 单流化（根治 containerd 双 copier 乱序）、EXIT trap 补发末班 banner
 - **分步日志**：`GET /api/tasks/:wf/:id/log?stage=&job=`——活任务透传 Pod 日志尾部，终态回档案按 banner 切段（64KB 保尾截断）
-- **镜像三档**：`spec.image` > runner 0.2.0（大满贯单镜像：alpine + git/docker-cli/curl/make/jq + **golang 1.27 工具链**，自动档通吃免"现场选镜像"）> busybox
+- **镜像三档**：`spec.image` > runner 0.2.1（大满贯单镜像：alpine + git/docker-cli/curl/make/jq/openssh-client + **golang 1.27 工具链**，自动档通吃免"现场选镜像"）> busybox
 
 ### CD 与部署
 
@@ -55,6 +55,7 @@
   | 2 | 裸名（无仓库前缀）+ 存在默认仓库 | 跟随 `is_default` 记录推送（⚠️ 设默认会改变所有裸名图纸的推送目标） |
   | 3 | 其余 | 原行为：全名直推（/root/.docker 兜底）/ 无默认时裸名推集群内置 registry:2 |
 - **密封构建链路**：shell 造 Dockerfile → docker_build 推节点 registry:2（NodePort 30500）→ 临时 Job 经 kubelet `localhost:5000` mirror 拉起产物运行
+- **远程主机（ssh 外部部署）**（2026-11-08，对照 Zadig ssh_key/vm_deploy 的极简版）：host 集合 = ssh 靶标资源（名字/登录用户/IP/端口默认22/私钥/说明）CRUD；freestyle job 配 `spec.hosts: [<名>]`，引擎在驱动脚本编译期把私钥投影进 Pod（`/tmp` 0600 + `~/.ssh/config` 别名条目 + `MP_H_<名>_IP/_PORT/_USER` 环境变量），shell 步骤里直接 `ssh <名> <命令>`——**凭证不落任务档案**（每 attempt 现解析，档案只存名字引用，retry/clone 拿当前值）；引用了主机的 job 自动升级 runner 宿体（openssh-client）；名字不存在执行时点名报错。不加新步骤类型，shell 想怎么编排远程机就怎么写
 
 ### 协作与通知
 
@@ -196,6 +197,7 @@ wf.json 示例（freestyle 脚本形态）：
 | POST/GET/PUT/DELETE | `/api/notifies` | IM 通知配置（飞书/钉钉） |
 | POST/GET/DELETE | `/api/envs` | 部署目标环境 |
 | POST/GET/PUT/DELETE | `/api/registries` | 镜像仓库管理（is_default 全局唯一；删默认回落"无默认"稳态=裸名推内置本地） |
+| POST/GET/PUT/DELETE | `/api/hosts` | 远程主机管理（ssh 靶标：用户/IP/端口/私钥；job 级 `spec.hosts` 名字引用） |
 
 ## 环境变量
 
@@ -205,7 +207,7 @@ wf.json 示例（freestyle 脚本形态）：
 | HTTP_ADDR | :8080 | 监听地址 |
 | K8S_NAMESPACE | pipeline | K8s Job 所在 namespace |
 | K8S_CONTEXT | （空） | 仅本机调试：kubeconfig context（如 k3s-heyuan）；集群内留空走 InClusterConfig |
-| RUNNER_IMAGE | crpi-…-vpc…/codepipeline-learning/pipeline-runner:0.2.0 | git/docker_build/archive 步骤的默认 Job 容器（chart values runner.image 注入，升 tag 不用重编引擎） |
+| RUNNER_IMAGE | crpi-…-vpc…/codepipeline-learning/pipeline-runner:0.2.1 | git/docker_build/archive 步骤的默认 Job 容器（chart values runner.image 注入，升 tag 不用重编引擎） |
 | MAX_RUNNING_TASKS | 3 | 全局并发上限；0 = 停止派发只收尾（维护用） |
 | MP_ENGINE_URL | http://mini-pipeline.<ns>.svc:8080 | Pod 内访问引擎（archive 上传用） |
 

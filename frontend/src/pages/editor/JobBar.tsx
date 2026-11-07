@@ -25,6 +25,7 @@ export default function JobBar({ job, err, onOpen, onRemove, onInsertBefore, onI
   const summary = freestyle
     ? [
         `${steps.length} 步骤`,
+        (spec.hosts?.length ?? 0) > 0 ? `主机×${spec.hosts!.length}` : '',
         (spec.retry ?? 0) > 0 ? `重试${spec.retry}` : '',
         `超时${spec.timeout_minutes ?? 10}分`,
         spec.error_policy && spec.error_policy !== 'stop' ? spec.error_policy : '',

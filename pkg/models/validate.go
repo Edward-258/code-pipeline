@@ -79,6 +79,13 @@ func ValidateWorkflow(wf *Workflow) error {
 			default:
 				return fmt.Errorf("stage[%d].job[%d]: unknown error_policy %q (want stop|retry|ignore)", i, j, jb.Spec.ErrorPolicy)
 			}
+			// 2026-11-08：远程主机引用形状校验（存在性在执行时由 resolveHosts 把关——
+			// 校验层摸不到 repo，只能查形状；同 registry 引用的分层）
+			for _, hn := range jb.Spec.Hosts {
+				if !regNameRe.MatchString(hn) {
+					return fmt.Errorf("stage[%d].job[%d]: host %q must match [a-z0-9][a-z0-9-]{0,62}", i, j, hn)
+				}
+			}
 			for _, ss := range jb.Spec.Steps {
 				if ss.Name == "" {
 					return fmt.Errorf("stage[%d].job[%d]: step name is required", i, j)

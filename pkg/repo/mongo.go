@@ -1,4 +1,5 @@
-// Package repo —— MongoDB 持久层：五集合的 CRUD、ack 全量写、counter 发号器、
+// Package repo —— MongoDB 持久层：八集合（workflow / workflow_task / counter / env /
+// registry / host / cron / notify）的 CRUD、ack 全量写、counter 发号器、
 // GridFS artifacts。包外不摸集合句柄，一律走这里的函数。
 package repo
 
@@ -22,6 +23,7 @@ var (
 	counterColl  *mongo.Collection
 	envColl      *mongo.Collection
 	registryColl *mongo.Collection
+	hostColl     *mongo.Collection
 	cronColl     *mongo.Collection
 	notifyColl   *mongo.Collection
 )
@@ -46,6 +48,7 @@ func Init(uri string) error {
 	counterColl = db.Collection("counter")
 	envColl = db.Collection("env")
 	registryColl = db.Collection("registry")
+	hostColl = db.Collection("host")
 	cronColl = db.Collection("cron")
 	notifyColl = db.Collection("notify")
 

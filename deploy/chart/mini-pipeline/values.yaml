@@ -15,16 +15,17 @@ connections:
 
 image:
   repo: crpi-28fqgwft325ylccc-vpc.cn-heyuan.personal.cr.aliyuncs.com/codepipeline-learning/mini-pipeline  # ACR 个人版(河源)独立实例：VPC 端点走内网免公网流量（host 必须与 acr.registry 一致）
-  tag: "0.7.6"  # 跟随当前引擎版本（部署仍以 --set 显式覆盖为准——helm v3 不复用上次 --set）
+  tag: "0.7.7"  # 跟随当前引擎版本（部署仍以 --set 显式覆盖为准——helm v3 不复用上次 --set）
   pullPolicy: Always                  # 开发期同 tag 反复推镜像，必须每次重拉；走内网 VPC 端点，代价可忽略
 
 # 步骤执行器宿体镜像（docker/runner.Dockerfile）：git/docker_build/archive 步骤的默认 Job 容器。
 # 0.2.0 起大满贯：alpine + git/docker-cli/curl + golang 工具链 + make/jq——自动档通吃构建类
 # job，免"现场选镜像"（哲学分叉：Zadig 是一组系统镜像，我们是单 runner 全能）。
+# 0.2.1：+openssh-client（spec.hosts 远程主机的 ssh 客户端）。
 # 引擎运行时创建的 K8s Job 用它，并自带 acr-credential 拉取凭证（不继承引擎 Deployment）。
 # 推送：deploy/build-runner.sh（公网端点，同仓同名）。升 runner tag 只改这里，不用重编引擎。
 runner:
-  image: crpi-28fqgwft325ylccc-vpc.cn-heyuan.personal.cr.aliyuncs.com/codepipeline-learning/pipeline-runner:0.2.0
+  image: crpi-28fqgwft325ylccc-vpc.cn-heyuan.personal.cr.aliyuncs.com/codepipeline-learning/pipeline-runner:0.2.1
 
 # 引擎镜像拉取凭证（templates/secret.yaml 由 acr.username/password 生成；username 为空则不渲染）
 imagePullSecrets:
@@ -43,7 +44,7 @@ service:
 # 前端镜像（React+nginx 多阶段构建，docker/web.Dockerfile）：推送走 deploy/build-web.sh
 # （公网端点），此处指 VPC 端点（集群内网拉取，与 image.repo 同实例同款套路）
 web:
-  image: crpi-28fqgwft325ylccc-vpc.cn-heyuan.personal.cr.aliyuncs.com/codepipeline-learning/mini-pipeline-web:0.1.7
+  image: crpi-28fqgwft325ylccc-vpc.cn-heyuan.personal.cr.aliyuncs.com/codepipeline-learning/mini-pipeline-web:0.1.8
 
 ingress:
   enabled: true

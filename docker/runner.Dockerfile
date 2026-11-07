@@ -5,11 +5,13 @@
 # 工具链从官方 golang 镜像整目录搬运（版本与 bootstrap 工作流对齐），GOPROXY 烘焙进镜像。
 # 分发：ACR codepipeline-learning/pipeline-runner（deploy/build-runner.sh 本机直推公网
 # 端点，集群 kubelet 经 VPC 端点拉取）。
+# 0.2.1：+openssh-client——spec.hosts 远程主机的 ssh 客户端（引擎投影私钥进 Pod，
+# 用户 shell 步骤直接 `ssh <名>`；NeedsRunner 对 hosts>0 强制走 runner）。
 FROM golang:1.27-alpine AS toolchain
 
 FROM alpine:3.20
 RUN sed -i 's#dl-cdn.alpinelinux.org#mirrors.aliyun.com#g' /etc/apk/repositories \
-    && apk add --no-cache git docker-cli curl ca-certificates make jq
+    && apk add --no-cache git docker-cli curl ca-certificates make jq openssh-client
 COPY --from=toolchain /usr/local/go /usr/local/go
 ENV PATH=/usr/local/go/bin:/go/bin:$PATH \
     GOPATH=/go \

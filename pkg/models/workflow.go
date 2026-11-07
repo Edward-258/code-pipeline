@@ -101,6 +101,7 @@ type FreestyleSpec struct {
 	Retry          int         `bson:"retry,omitempty"           json:"retry,omitempty"`           // 单 job 重试次数（默认 0=不重试，M4）
 	TimeoutMinutes int         `bson:"timeout_minutes,omitempty" json:"timeout_minutes,omitempty"` // 单 job 超时（分钟，默认 10，T1.9）
 	ErrorPolicy    string      `bson:"error_policy,omitempty"    json:"error_policy,omitempty"`    // 错误策略（默认 stop，T1.9）
+	Hosts          []string    `bson:"hosts,omitempty"           json:"hosts,omitempty"`           // 远程主机引用（models.Host 名；driver 编译期投影私钥进 Pod，shell 里直接 ssh <名>）
 }
 
 // 错误策略（T1.9，对照 Zadig JobErrorPolicy 的 stop/retry；manual-check 砍进 B5 池）。
@@ -159,6 +160,9 @@ func (s *FreestyleSpec) EffectiveSteps() []*StepSpec {
 // body，§9.17）。"哪种步骤需要什么执行环境"是步骤域的知识，归 models；
 // k8s.BuildJob 只消费判定结果选镜像，不再嗅探步骤类型。
 func (s *FreestyleSpec) NeedsRunner() bool {
+	if len(s.Hosts) > 0 {
+		return true // ssh 客户端（openssh-client）是 busybox 没有的工具，主机引用强制走 runner
+	}
 	for _, st := range s.EffectiveSteps() {
 		if st.Type == StepGit || st.Type == StepDockerBuild || st.Type == StepArchive {
 			return true
