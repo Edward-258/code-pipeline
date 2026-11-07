@@ -29,7 +29,7 @@ MVP 已全量落地：变量/重试/取消/队列/CD deploy/archive/自举/cron/
 2. Stage 状态机 + **durable 暂停**（暂停=落库+goroutine 退出，进程重启可恢复）
 3. Job = K8s Job
 
-## 2. 已实现能力全景（截至 2026-11-07，集群镜像 0.7.2 / runner 0.2.0 / web 0.1.5）
+## 2. 已实现能力全景（截至 2026-11-07，集群镜像 0.7.2 / runner 0.2.0 / web 0.1.6）
 
 > 引擎全部能力域均已落地并活体验收：四门（35+20+25+20=100 断言）+ frontend jsdom 冒烟 5 断言在 0.7.0 上全绿，`go test ./pkg/...` 11 包单测绿。历史任务账本（MVP 四阶段，PR #1–#31）见桌面 `mvp复现计划.md`（存档）；踩坑实录全在 §9。以下按能力域描述引擎**现在能做什么**。
 
@@ -76,7 +76,7 @@ M0 地基 → M1 第一口气（run→Job→轮询→ack→清理，引擎 helm 
 
 - 任务列表过滤分页：GET /api/tasks/:name?status=&creator=&from=&to=&page=&size= → **envelope {items,total,page,size}**（裸数组形状已废，消费方注意）；task_id 降序 + size 上限 100 + CountDocuments 总数
 - workflow/env **PUT 端点已补**（PR #33）：PUT /api/workflows/:name、PUT /api/envs/:name——全量替换、路径名为准、name 不一致 400、created_at 从旧档带过来；前端"保存=删除重建"时代结束
-- **React 前端**（2026-11-06 重构，PR #34–#36）：`frontend/`（Vite+TS strict+antd5，暗色 teal 侧边栏自成一体）；页面 = 工作流列表/**画布式四层编辑器**（2026-11-07 画布化，火山引擎持续交付同款语义：横=stage 串行时间轴、竖=job 堆叠——并行竖堆/串行 ↓ 链；job 压成紧凑条框+详情右侧 JobDrawer（live-patch 无缓冲）；列间分界线 ⊕ 插 stage、条框悬停 ⊕ 插 job；列底审批闸门条（any/all+审批人）；collectErrors 逐节点实时红标；job freestyle/deploy 二选一：镜像自动/自定义+retry/timeout/error_policy、deploy 靶标四项+env 下拉；5 种 step 表单含 **shell 本地脚本导入（FileReader）+手写**；JSON 双模逃生舱）/任务列表过滤分页/任务详情三级树（分步日志抽屉+cancel/retry/clone/approve/release）；api 层 typed client 对齐 24 端点、usePolling（setTimeout 链防重叠、终态停）
+- **React 前端**（2026-11-06 重构，PR #34–#36）：`frontend/`（Vite+TS strict+antd5，暗色 teal 侧边栏自成一体）；页面 = 工作流列表/**画布式四层编辑器**（2026-11-07 画布化，火山引擎持续交付同款语义：横=stage 串行时间轴、竖=job 堆叠——并行竖堆/串行 ↓ 链；job 压成紧凑条框+详情右侧 JobDrawer（live-patch 无缓冲）；列间分界线 ⊕ 插 stage、条框悬停 ⊕ 插 job；列底审批闸门条（any/all+审批人）；collectErrors 逐节点实时红标；job freestyle/deploy 二选一：**镜像自动档**（2026-11-07 用户拍板删自定义镜像选择——引擎按步骤选 runner/busybox，`pkg/k8s/build.go` 镜像三档；旧图纸显式镜像只留 Tag+清除入口，真要定制走 JSON 逃生舱）+retry/timeout/error_policy、deploy 靶标四项+env 下拉；5 种 step 表单含 **shell 本地脚本导入（FileReader）+手写**；JSON 双模逃生舱）/任务列表过滤分页/任务详情三级树（分步日志抽屉+cancel/retry/clone/approve/release）；api 层 typed client 对齐 24 端点、usePolling（setTimeout 链防重叠、终态停）
 - 前端部署形态：**独立 nginx Pod**（多阶段 Dockerfile node build→nginx；/api、/healthz 反代引擎 service 经 envsubst 模板+resolv.conf 注入 resolver，§9.21），ingress 单条规则指前端 Pod（chart `tags.web`）；引擎 API-only（go:embed 已退役，main.go 无前端）
 - 前端质量门：`npm run build`（tsc strict 零错）+ `frontend/e2e/smoke.mjs` **jsdom 真执行冒烟**（5 断言：React 真挂载/五导航/真引擎数据/菜单真切换路由/API 可达；手法=vite 单 chunk 无 import 语句→new Function eval+window 全量桥接，§9.22）——"字符串在位"≠"脚本活着"（§9.19；曾配套的 bundle ESM 语法门随四门存档于 tag acceptance-suite）
 
@@ -205,7 +205,7 @@ go test ./pkg/repo/ -v -run TestNextID   # 需先 port-forward mongo
 
 ## 8. 当前部署与验证态势（快照，2026-11-07 深夜）
 
-- 集群 release：helm `mini-pipeline` rev31，引擎 **0.7.2**（registry 管理化 PR #49 + 删默认回落无默认稳态 #50；master 64ee70f）+ runner **0.2.0**（大满贯，PR #48）+ **web 0.1.5**（编辑器画布化：横=stage 串行/竖=job 并行堆叠、job 条框详情进右侧抽屉、分界线 ⊕ 插 stage、collectErrors 实时红标）；**registry:2 七件套由本 chart 渲染**（`tags.registry=true`，ArgoCD 管理权收回实录 §9.23）；mongo 8.0 同 ns 共存。**集群引擎现跑流水线自建的镜像链**：bootstrap-6 passed（含共享库 gate 修复）后 rev30 落正式 0.7.2 tag
+- 集群 release：helm `mini-pipeline` rev31，引擎 **0.7.2**（registry 管理化 PR #49 + 删默认回落无默认稳态 #50；master 64ee70f）+ runner **0.2.0**（大满贯，PR #48）+ **web 0.1.6**（编辑器画布化：横=stage 串行/竖=job 并行堆叠、job 条框详情进右侧抽屉、分界线 ⊕ 插 stage、collectErrors 实时红标；+删自定义镜像选择走纯自动档）；**registry:2 七件套由本 chart 渲染**（`tags.registry=true`，ArgoCD 管理权收回实录 §9.23）；mongo 8.0 同 ns 共存。**集群引擎现跑流水线自建的镜像链**：bootstrap-6 passed（含共享库 gate 修复）后 rev30 落正式 0.7.2 tag
 - **registry 能力活体验证（2026-11-07 全绿）**：引用链路（registry-ref-demo → catalog 见 registry-demo）、默认语义（is_default 置位后裸名 default-demo 实推 172.29.237.250:30500；取消后 bare-demo 回落本节点 hostIP:30500）、自举双跑（bootstrap-4 引用推 ACR digest eee6a91b…；bootstrap-6 含 #50 gate 修复全链 passed——Pod 内自行 login，节点手工 login 不再是前置）。单测：`go test ./pkg/...` 12 包全绿（+exec 解析表测/step 转义用例/api CRUD 回环含共享库快照恢复）。⚠️ 已清 bootstrap-5 失败测试的残留：acr 的 is_default 污染位 PUT 复位——**现稳态 = 无默认记录**（acr/local-ingress 均 null，裸名图纸推内置本地）
 - 引擎入口 `https://pipeline.47.113.177.198.nip.io`：ingress 单条规则指 **前端 Pod**，nginx 反代 `/api`、`/healthz` 到引擎 service（统一入口）；健康门 `curl -k …/healthz` 不变；引擎自身无前端路由（API-only）
 - **单引擎纪律**：集群引擎自带派发器，本机 `go run` 引擎与它共用 mongo 时会抢同一条队列（§9.20）——本机引擎只作调试；活体验收已退役（§2 验收资产，存档 tag acceptance-suite），若恢复一律打集群 ingress

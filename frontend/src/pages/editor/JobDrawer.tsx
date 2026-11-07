@@ -85,24 +85,22 @@ export default function JobDrawer({ wf, si, ji, envs, registries, onChange, onCl
 
         {(job.type ?? 'freestyle') === 'freestyle' ? (
           <>
+            {/* 执行镜像：前端只走自动档（引擎按步骤选 runner/busybox，pkg/k8s/build.go 镜像三档）——
+                自定义镜像选择已删（用户拍板：学习版纯累赘）；旧图纸残留的显式镜像给清除入口 */}
             <div>
-              <Text type="secondary" style={{ fontSize: 12 }}>执行镜像</Text>
-              <Select
-                style={{ width: '100%' }}
-                value={spec.image ? 'custom' : 'auto'}
-                onChange={(v) => onChange(patchFreestyle(wf, si, ji, { image: v === 'auto' ? '' : 'busybox:latest' }))}
-                options={[
-                  { value: 'auto', label: '自动（git/构建/归档→runner，纯 shell→busybox）' },
-                  { value: 'custom', label: '自定义镜像…' },
-                ]}
-              />
+              <Text type="secondary" style={{ fontSize: 12 }}>执行镜像</Text>{' '}
+              {spec.image ? (
+                <Space size={6} wrap>
+                  <Tag color="orange">{spec.image}</Tag>
+                  <Text type="secondary" style={{ fontSize: 12 }}>显式指定（压过自动档）</Text>
+                  <Button size="small" onClick={() => onChange(patchFreestyle(wf, si, ji, { image: '' }))}>
+                    清除，走自动档
+                  </Button>
+                </Space>
+              ) : (
+                <Text style={{ fontSize: 12 }}>自动档 —— git/构建/归档 → runner，纯 shell → busybox</Text>
+              )}
             </div>
-            {spec.image && (
-              <Input
-                value={spec.image} placeholder="镜像全名，如 alpine:3.20"
-                onChange={(e) => onChange(patchFreestyle(wf, si, ji, { image: e.target.value }))}
-              />
-            )}
             <Row gutter={10}>
               <Col span={6}>
                 <Text type="secondary" style={{ fontSize: 12 }}>重试</Text>
