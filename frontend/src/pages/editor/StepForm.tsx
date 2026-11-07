@@ -1,8 +1,6 @@
-import { useEffect, useState } from 'react'
 import { Button, Col, Input, Row, Select, Slider, Typography, Upload } from 'antd'
 import { DeleteOutlined, ImportOutlined, ArrowUpOutlined, ArrowDownOutlined } from '@ant-design/icons'
 import type { Registry, StepSpec, StepType } from '../../types'
-import { listRegistries } from '../../api/resources'
 
 // 单个步骤的编辑表单 —— 5 种类型共享骨架，按 type 显隐专属字段（后端 StepSpec 就是扁平结构，
 // 前端如实呈现：字段即协议，不搞每类型一个子 schema 的过度设计）
@@ -21,17 +19,13 @@ interface Props {
   step: StepSpec
   index: number
   total: number
+  registries: Registry[] // 仓库下拉数据源（docker_build 目标仓库）：编辑器页拉一次下传，不再每个步骤各拉
   onChange: (patch: Partial<StepSpec>) => void
   onRemove: () => void
   onMove: (to: number) => void
 }
 
-export default function StepForm({ step, index, total, onChange, onRemove, onMove }: Props) {
-  // 仓库下拉数据源（docker_build 目标仓库）：挂载时拉一次，编辑器页不需轮询
-  const [registries, setRegistries] = useState<Registry[]>([])
-  useEffect(() => {
-    listRegistries().then(setRegistries).catch(() => { /* 引擎不可达时下拉留内置项 */ })
-  }, [])
+export default function StepForm({ step, index, total, registries, onChange, onRemove, onMove }: Props) {
 
   // 本地脚本导入：读文件内容填进 script 字段（纯前端 FileReader，不上传）
   const importScript = (file: File) => {

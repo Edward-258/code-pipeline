@@ -65,7 +65,7 @@
 ### 前端（React + nginx 独立 Pod，有真执行门）
 
 - React 18 + TypeScript(strict) + antd 5（Vite 构建），独立 nginx 镜像跑 Pod：ingress 统一入口，nginx 反代 `/api`、`/healthz` 到引擎（envsubst 模板 + 运行时 resolver）
-- **可视化多阶段编辑器**：stage 管道卡片（并行开关 + 审批闸门 any/all）→ job（freestyle/deploy 二选一，镜像自动/自定义、retry/超时/错误策略、deploy 靶标 env 下拉）→ 5 种步骤表单（shell 支持本地脚本导入 + 手写、git、docker_build、junit 门禁、archive）+ JSON 双模逃生舱；保存走 PUT（真更新，非删除重建）
+- **画布式编辑器**（火山引擎持续交付同款语义）：横 = stage 串行时间轴（从左到右），竖 = stage 内 job 堆叠（并行=竖排、串行=↓ 链）；job 压成紧凑条框——悬停出 ⊕ 插 job、红框 = 配置校验错（实时），点击开右侧抽屉编辑（freestyle/deploy 二选一、**镜像自动档**——引擎按步骤自动选 runner/busybox、retry/超时/错误策略、deploy 靶标 env 下拉、5 种步骤表单含 shell 本地脚本导入）；列间分界线 ⊕ 插 stage；列底审批闸门条（any/all + 审批人）；+ JSON 双模逃生舱；保存走 PUT（真更新，非删除重建）
 - 任务详情三级树 + 分步日志抽屉 + cancel/retry/clone/approve/release；环境/镜像仓库/通知/定时完整 CRUD（编辑/启用开关/手动点火）
 - 质量门：tsc strict 零错构建 + jsdom 真执行冒烟（React 真挂载/真路由切换/真引擎数据）——"字符串在位"≠"脚本活着"（曾配套的四门 bundle 语法门已随验收脚本存档 tag acceptance-suite）
 
