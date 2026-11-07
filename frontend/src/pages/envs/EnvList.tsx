@@ -96,8 +96,13 @@ export default function EnvList() {
           >
             <Input disabled={!!editing.original} placeholder="dev / qa / prod" />
           </Form.Item>
-          <Form.Item name="namespace" label="Namespace" rules={[{ required: true }]}>
-            <Input placeholder="集群里真实存在的 namespace" />
+          <Form.Item
+            name="namespace" label="Namespace"
+            // 随建语义（引擎侧 EnsureNamespace）：不存在现场造，Terminating 拒绝
+            extra={editing.original ? '保存后同样会确保该 namespace 存在（不存在则自动创建）' : '保存后会同时在集群创建该 namespace'}
+            rules={[{ required: true }, { pattern: /^[a-z0-9][a-z0-9-]{0,62}$/, message: '小写字母数字中划线' }]}
+          >
+            <Input placeholder="如 mvp-dev（不存在会自动创建）" />
           </Form.Item>
           <Form.Item name="desc" label="说明"><Input /></Form.Item>
         </Form>

@@ -2,6 +2,7 @@
 # 引擎对 K8s 的最小权限：本 namespace 里管 Job + 读 Pod/日志 + patch 工作负载（T2.2 deploy job）
 # （Zadig 的 aslan 也是以 SA 身份操作业务集群，这里是学习版的最小化。
 #   ⚠️ deployments 权限是 deploy job 的硬前提，2026-11-05 T2.3 扩展；活体生效需人工 helm upgrade）
+#   集群级权限（env 随建 namespace，get/create）另见 clusterrole.yaml
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
