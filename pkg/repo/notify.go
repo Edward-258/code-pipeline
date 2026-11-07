@@ -8,6 +8,7 @@ import (
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 
 	"pipeline/pkg/models"
 )
@@ -35,7 +36,8 @@ func FindNotify(name string) (*models.NotifyConfig, error) {
 }
 
 func ListNotifies() ([]*models.NotifyConfig, error) {
-	cur, err := notifyColl.Find(context.TODO(), bson.M{})
+	opts := options.Find().SetSort(bson.D{{Key: "created_at", Value: -1}}) // 最新在上
+	cur, err := notifyColl.Find(context.TODO(), bson.M{}, opts)
 	if err != nil {
 		return nil, err
 	}
